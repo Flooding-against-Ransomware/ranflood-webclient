@@ -28,6 +28,7 @@ import {
   removeSnapshot,
   startFlooding,
   stopFlooding,
+  getDeamonVersion,
 } from "./services/api";
 
 import MenuIcon from "@mui/icons-material/Menu";
@@ -96,6 +97,8 @@ function App() {
   const [floodList, setFloodList] = useState<FloodObject[]>([]);
 
   const [isPolling, setIsPolling] = useState<boolean>(true);
+  const [timeout, setTimeout] = useState<number>(10);
+  const [deamonVersion, setDeamonVersion] = useState<string>("");
 
   const [open, setOpen] = useState(true);
 
@@ -107,13 +110,31 @@ function App() {
     setOpen(false);
   };
 
+  const handleSetTimeout = (newTimeout: string) => {
+    const t = parseInt(newTimeout);
+    setTimeout(t);
+  };
+
   // gestisce quando refreshare snapshot e flooding
   useEffect(() => {
     if (isPolling) {
-      refreshHostState(selectedHost, setSnapshotList, setFloodList);
+      if (selectedHost) {
+        refreshHostState(
+          selectedHost,
+          setSnapshotList,
+          setFloodList,
+          timeout * 1000
+        );
+        getDeamonVersion(selectedHost, setDeamonVersion);
+      }
 
       const interval = setInterval((): void => {
-        refreshHostState(selectedHost, setSnapshotList, setFloodList);
+        refreshHostState(
+          selectedHost,
+          setSnapshotList,
+          setFloodList,
+          timeout * 1000
+        );
       }, 30000);
 
       return () => clearInterval(interval);
@@ -144,7 +165,6 @@ function App() {
         handleDrawerClose={handleDrawerClose}
         setSelectedHost={setSelectedHost}
       ></SideBar>
-      ;
       <Main open={open}>
         <DrawerHeader />
         <Box>
@@ -172,7 +192,8 @@ function App() {
                       refreshHostState(
                         selectedHost,
                         setSnapshotList,
-                        setFloodList
+                        setFloodList,
+                        timeout * 1000
                       )
                     }
                   >
@@ -195,6 +216,37 @@ function App() {
                 />
               </Box>
 
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  gap: "10rem",
+                }}
+              >
+                <Typography
+                  variant="subtitle1"
+                  noWrap
+                  component="div"
+                  // sx={{ fontSize: "1rem" }}
+                >
+                  Deamon Version: {deamonVersion}
+                </Typography>
+                <TextField
+                  size="small"
+                  label="Requests Timeout (seconds)"
+                  variant="outlined"
+                  value={timeout}
+                  onChange={(e) => handleSetTimeout(e.target.value)}
+                  inputProps={{ min: 1 }}
+                  type="number"
+                  sx={{
+                    m: "10px",
+                    width: "12rem",
+                  }}
+                />
+              </Box>
+
               <Box sx={{ display: "flex", gap: 2 }}>
                 <Box
                   sx={{
@@ -212,7 +264,7 @@ function App() {
                       <List>
                         {snapshotList.map((item) => (
                           <ListItem
-                            key={item.path}
+                            key={item.path + item.method}
                             secondaryAction={
                               <IconButton
                                 edge="end"
@@ -221,7 +273,8 @@ function App() {
                                   removeSnapshot(
                                     selectedHost,
                                     item.path,
-                                    item.method
+                                    item.method,
+                                    timeout * 1000
                                   );
                                 }}
                               >
@@ -272,7 +325,12 @@ function App() {
                       color="primary"
                       disabled={!snapshotInput}
                       onClick={() => {
-                        takeSnapshot(selectedHost, snapshotInput, snapMethod);
+                        takeSnapshot(
+                          selectedHost,
+                          snapshotInput,
+                          snapMethod,
+                          timeout * 1000
+                        );
                         setSnapshotInput("");
                       }}
                     >
@@ -296,7 +354,7 @@ function App() {
                       <List>
                         {floodList.map((item) => (
                           <ListItem
-                            key={item.path}
+                            key={item.id}
                             secondaryAction={
                               <IconButton
                                 edge="end"
@@ -305,7 +363,8 @@ function App() {
                                   stopFlooding(
                                     selectedHost,
                                     item.id,
-                                    item.method
+                                    item.method,
+                                    timeout * 1000
                                   )
                                 }
                               >
@@ -357,7 +416,12 @@ function App() {
                       color="primary"
                       disabled={!floodInput}
                       onClick={() => {
-                        startFlooding(selectedHost, floodInput, floodMethod);
+                        startFlooding(
+                          selectedHost,
+                          floodInput,
+                          floodMethod,
+                          timeout * 1000
+                        );
                         setFloodInput("");
                       }}
                     >
@@ -391,18 +455,6 @@ function App() {
       </Main>
     </Box>
   );
-
-  // <AppBar
-  //       position="fixed"
-  //       sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}
-  //     >
-  //       <Toolbar>
-  //         <Typography variant="h6" noWrap component="div">
-  //           Ranflood Client
-  //         </Typography>
-  //       </Toolbar>
-  //     </AppBar>
-  //     <SideBar setSelectedHost={setSelectedHost}></SideBar>
 }
 
 export default App;
