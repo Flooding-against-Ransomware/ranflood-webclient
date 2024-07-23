@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { styled, useTheme } from "@mui/material/styles";
 import Drawer from "@mui/material/Drawer";
 
@@ -39,9 +39,13 @@ export default function SideBar({
   const theme = useTheme();
 
   const [newHostInput, setNewHostInput] = useState<string>("");
-  const [hostList, setHostList] = useState<string[]>([
-    "http://localhost:8080/command",
-  ]);
+  const [hostList, setHostList] = useState<string[]>(() => {
+    // Recupera la lista dal local storage al caricamento iniziale dell'app
+    const savedHostList = localStorage.getItem("hostList");
+    return savedHostList
+      ? JSON.parse(savedHostList)
+      : ["http://localhost:8080/command"];
+  });
 
   const handleNewMachine = () => {
     setHostList((list) => [...list, newHostInput]);
@@ -52,6 +56,12 @@ export default function SideBar({
     const updatedHostList = hostList.filter((host) => host !== name);
     setHostList(updatedHostList);
   };
+
+  // Aggiorna il local storage ogni volta che hostList cambia
+  useEffect(() => {
+    localStorage.setItem("hostList", JSON.stringify(hostList));
+  }, [hostList]);
+
   return (
     <Drawer
       sx={{

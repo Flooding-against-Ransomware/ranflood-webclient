@@ -1,0 +1,36 @@
+[
+  {
+    "name": "example-strategy1",
+    "actions": [
+      {
+        "command": "snapshot",
+        "subcommand": "take",
+        "method": "on-the-fly",
+        "path": "/tmp/prov"
+      },
+      {
+        "command": "flood",
+        "subcommand": "start",
+        "method": "on-the-fly",
+        "path": "/tmp/prov"
+      }
+    ]
+  },
+  {
+    "name": "example-strategy44",
+    "actions": [
+      {
+        "command": "snapshot",
+        "subcommand": "take",
+        "method": "shadow-copy",
+        "path": "/tmp/prova22"
+      },
+      {
+        "command": "flood",
+        "subcommand": "start",
+        "method": "shadow-copy",
+        "path": "/tmp/prova22"
+      }
+    ]
+  }
+]

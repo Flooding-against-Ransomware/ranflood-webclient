@@ -348,7 +348,7 @@ function Manage() {
             display: "flex",
             justifyContent: "center",
             bgcolor: "background.paper",
-            alignItems: "center", // Aggiunto per centrare verticalmente
+            alignItems: "center",
           }}
         >
           <Typography variant="h4" noWrap component="div" sx={{ mt: "5rem" }}>
