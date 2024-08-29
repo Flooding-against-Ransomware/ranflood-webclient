@@ -58,9 +58,13 @@ function Manage() {
   const [snapshotHistory, setSnapshotHistory] = useState<CommandStatus[]>([]);
   const [floodingHistory, setFloodingHistory] = useState<CommandStatus[]>([]);
 
-  const [openItems, setOpenItems] = useState<boolean[]>([]);
+  const [openItemsSnap, setOpenItemsSnap] = useState<boolean[]>([]);
+  const [openItemsFlood, setOpenItemsFlood] = useState<boolean[]>([]);
 
-  const handleToggle = (index: number) => {
+  const handleToggle = (
+    index: number,
+    setOpenItems: (value: React.SetStateAction<boolean[]>) => void
+  ) => {
     setOpenItems((prevOpenItems) => {
       const newOpenItems = [...prevOpenItems];
       newOpenItems[index] = !newOpenItems[index];
@@ -101,6 +105,7 @@ function Manage() {
         setTimeout(updateStatus, 1000);
       } else if (requestCount >= MAX_NUM_BUFFER_REQUEST) {
         updatedItem.errorMsg = "Timeout";
+        updatedItem.status = "error";
         //aggiorno l'oggetto
         setHistory((prev) => {
           return prev.map((h) => (h.id === updatedItem.id ? updatedItem : h));
@@ -566,10 +571,12 @@ function Manage() {
                               </Typography>
                               {item.errorMsg && (
                                 <IconButton
-                                  onClick={() => handleToggle(index)}
+                                  onClick={() =>
+                                    handleToggle(index, setOpenItemsSnap)
+                                  }
                                   size="small"
                                 >
-                                  {openItems[index] ? (
+                                  {openItemsSnap[index] ? (
                                     <ExpandLess />
                                   ) : (
                                     <ExpandMore />
@@ -578,7 +585,7 @@ function Manage() {
                               )}
                             </Box>
                           </Box>
-                          {openItems[index] && item.errorMsg && (
+                          {openItemsSnap[index] && item.errorMsg && (
                             <Typography
                               variant="body2"
                               color="red"
@@ -624,20 +631,36 @@ function Manage() {
                                   : item.parameters.id
                               }  `}
                             />
-                            <Typography
-                              variant="body2"
-                              color={
-                                item.status === "success"
-                                  ? "green"
-                                  : item.status === "error"
-                                  ? "red"
-                                  : "orange"
-                              }
-                            >
-                              {item.status}
-                            </Typography>
+                            <Box display="flex" alignItems="center">
+                              <Typography
+                                variant="body2"
+                                color={
+                                  item.status === "success"
+                                    ? "green"
+                                    : item.status === "error"
+                                    ? "red"
+                                    : "orange"
+                                }
+                              >
+                                {item.status}
+                              </Typography>
+                              {item.errorMsg && (
+                                <IconButton
+                                  onClick={() =>
+                                    handleToggle(index, setOpenItemsFlood)
+                                  }
+                                  size="small"
+                                >
+                                  {openItemsFlood[index] ? (
+                                    <ExpandLess />
+                                  ) : (
+                                    <ExpandMore />
+                                  )}
+                                </IconButton>
+                              )}
+                            </Box>
                           </Box>
-                          {item.errorMsg && (
+                          {openItemsFlood[index] && item.errorMsg && (
                             <Typography
                               variant="body2"
                               color="red"
