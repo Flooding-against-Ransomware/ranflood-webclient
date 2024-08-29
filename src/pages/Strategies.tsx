@@ -1,13 +1,11 @@
 import React, { useEffect, useState } from "react";
 import {
   Accordion,
-  AccordionActions,
   AccordionDetails,
   AccordionSummary,
   Box,
   Button,
   Grid,
-  IconButton,
   Paper,
   Typography,
 } from "@mui/material";
@@ -24,7 +22,7 @@ import {
 import { Strategy } from "../models/Strategy";
 
 function Strategies() {
-  const selectedHost = useSelectedHostContext();
+  let selectedHost = useSelectedHostContext();
 
   const [fileName, setFileName] = useState<string>("");
   const [strategies, setStrategies] = useState<Strategy[]>([]);
@@ -87,7 +85,19 @@ function Strategies() {
             }}
           >
             <Typography variant="h4" gutterBottom>
-              {selectedHost}
+              {selectedHost.label}
+            </Typography>
+          </Box>
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              gap: "10rem",
+            }}
+          >
+            <Typography variant="subtitle1" noWrap component="div">
+              URL: {selectedHost.url}
             </Typography>
           </Box>
           <Box sx={{ textAlign: "center", mt: 4 }}>

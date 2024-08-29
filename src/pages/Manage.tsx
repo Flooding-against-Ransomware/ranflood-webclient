@@ -14,11 +14,16 @@ import {
   MenuItem,
   Switch,
   FormControlLabel,
+  Collapse,
+  Alert,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import StopIcon from "@mui/icons-material/Stop";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import CloseIcon from "@mui/icons-material/Close";
+import { ExpandMore, ExpandLess } from "@mui/icons-material";
 
+import { CommandStatus } from "../models/CommandStatus";
 import { SnapshotObject, FloodObject } from "../models/Models";
 import {
   refreshHostState,
@@ -27,8 +32,12 @@ import {
   startFlooding,
   stopFlooding,
   getDeamonVersion,
+  getCommandStatus,
 } from "../services/api";
 import { useSelectedHostContext } from "../contexts/SelectedHostContext";
+
+const MAX_ERROR_BUFFER_LENGTH = 10;
+const MAX_NUM_BUFFER_REQUEST = 20;
 
 function Manage() {
   const selectedHost = useSelectedHostContext();
@@ -42,34 +51,226 @@ function Manage() {
   const [floodList, setFloodList] = useState<FloodObject[]>([]);
 
   const [isPolling, setIsPolling] = useState<boolean>(true);
-  const [timeout, setTimeout] = useState<number>(10);
+  const [reqTimeout, setReqTimeout] = useState<number>(10);
   const [deamonVersion, setDeamonVersion] = useState<string>("");
+
+  const [errors, setErrors] = useState<string[]>([]);
+  const [snapshotHistory, setSnapshotHistory] = useState<CommandStatus[]>([]);
+  const [floodingHistory, setFloodingHistory] = useState<CommandStatus[]>([]);
+
+  const [openItems, setOpenItems] = useState<boolean[]>([]);
+
+  const handleToggle = (index: number) => {
+    setOpenItems((prevOpenItems) => {
+      const newOpenItems = [...prevOpenItems];
+      newOpenItems[index] = !newOpenItems[index];
+      return newOpenItems;
+    });
+  };
 
   const handleSetTimeout = (newTimeout: string) => {
     const t = parseInt(newTimeout);
-    setTimeout(t);
+    setReqTimeout(t);
+  };
+
+  const pollCommandStatus = async (
+    item: CommandStatus,
+    setHistory: React.Dispatch<React.SetStateAction<CommandStatus[]>>
+  ) => {
+    let requestCount = 0;
+
+    const updateStatus = async () => {
+      if (!selectedHost) throw new Error("Need to select a host");
+
+      requestCount++;
+
+      const updatedItem = await getCommandStatus(
+        selectedHost.url,
+        item.id,
+        reqTimeout * 1000,
+        handleNewError
+      );
+      if (updatedItem === undefined) {
+        handleNewError(
+          "Error getting command status for command id: " + item.id
+        );
+        return;
+      }
+
+      if (updatedItem.status === "in progress" && requestCount < 20) {
+        setTimeout(updateStatus, 1000);
+      } else if (requestCount >= MAX_NUM_BUFFER_REQUEST) {
+        updatedItem.errorMsg = "Timeout";
+        //aggiorno l'oggetto
+        setHistory((prev) => {
+          return prev.map((h) => (h.id === updatedItem.id ? updatedItem : h));
+        });
+        handleNewError(
+          `Polling stopped after ${MAX_NUM_BUFFER_REQUEST} requests for command: ${item.command} ${item.subcommand} with id: ${item.id}`
+        );
+      } else {
+        //aggiorno l'oggetto
+        setHistory((prev) => {
+          return prev.map((h) => (h.id === updatedItem.id ? updatedItem : h));
+        });
+      }
+    };
+
+    updateStatus();
+  };
+
+  const addCommandToSnapshotHistory = (command: CommandStatus) => {
+    setSnapshotHistory((prev) => [command, ...prev]);
+    if (command.status === "in progress") {
+      pollCommandStatus(command, setSnapshotHistory);
+    }
+  };
+
+  const addCommandToFloodingHistory = (command: CommandStatus) => {
+    setFloodingHistory((prev) => [command, ...prev]);
+    if (command.status === "in progress") {
+      pollCommandStatus(command, setFloodingHistory);
+    }
+  };
+
+  const handleNewError = (error: string) => {
+    if (errors.length >= MAX_ERROR_BUFFER_LENGTH) {
+      setErrors((prevErrors) => [
+        error,
+        ...prevErrors.slice(0, MAX_ERROR_BUFFER_LENGTH - 1),
+      ]);
+    } else {
+      setErrors((prev) => [error, ...prev]);
+    }
+  };
+
+  // dovrei gestire gli errori qui invece che dentro api
+  const handleTakeSnap = async () => {
+    if (!selectedHost) throw new Error("Need to select a host");
+
+    const id = await takeSnapshot(
+      selectedHost.url,
+      snapshotInput,
+      snapMethod,
+      reqTimeout * 1000,
+      handleNewError
+    );
+    if (id)
+      addCommandToSnapshotHistory({
+        command: "snapshot",
+        subcommand: "add",
+        status: "in progress",
+        id,
+        parameters: {
+          method: snapMethod,
+          path: snapshotInput,
+        },
+      });
+    setSnapshotInput("");
+  };
+
+  // dovrei gestire gli errori qui invece che dentro api
+  const handleRemoveSnap = async (item: SnapshotObject) => {
+    if (!selectedHost) throw new Error("Need to select a host");
+
+    const id = await removeSnapshot(
+      selectedHost.url,
+      item.path,
+      item.method,
+      reqTimeout * 1000,
+      handleNewError
+    );
+    if (id) {
+      addCommandToSnapshotHistory({
+        command: "snapshot",
+        subcommand: "remove",
+        status: "in progress",
+        id,
+        parameters: {
+          method: item.method,
+          path: item.path,
+        },
+      });
+    }
+  };
+
+  // dovrei gestire gli errori qui invece che dentro api
+  const handleStartFlood = async () => {
+    if (!selectedHost) throw new Error("Need to select a host");
+
+    const id = await startFlooding(
+      selectedHost.url,
+      floodInput,
+      floodMethod,
+      reqTimeout * 1000,
+      handleNewError
+    );
+    if (id)
+      addCommandToFloodingHistory({
+        command: "flood",
+        subcommand: "start",
+        status: "in progress",
+        id,
+        parameters: {
+          method: floodMethod,
+          path: floodInput,
+        },
+      });
+
+    setFloodInput("");
+  };
+
+  // dovrei gestire gli errori qui invece che dentro api
+  const handleStopFlood = async (item: FloodObject) => {
+    if (!selectedHost) throw new Error("Need to select a host");
+
+    const id = await stopFlooding(
+      selectedHost.url,
+      item.id,
+      item.method,
+      reqTimeout * 1000,
+      handleNewError
+    );
+    if (id)
+      addCommandToFloodingHistory({
+        command: "flood",
+        subcommand: "stop",
+        status: "in progress",
+        id,
+        parameters: {
+          method: item.method,
+          id: item.id,
+        },
+      });
+  };
+
+  const removeError = (index: number) => {
+    setErrors((prevErrors) => {
+      if (index < 0 || index >= prevErrors.length) {
+        return prevErrors;
+      }
+      return [...prevErrors.slice(0, index), ...prevErrors.slice(index + 1)];
+    });
+  };
+
+  const fetchData = async () => {
+    await refreshHostState(
+      selectedHost!.url,
+      setSnapshotList,
+      setFloodList,
+      reqTimeout * 1000,
+      handleNewError
+    );
   };
 
   // gestisce quando refreshare snapshot e flooding
   useEffect(() => {
-    if (isPolling) {
-      if (selectedHost) {
-        refreshHostState(
-          selectedHost,
-          setSnapshotList,
-          setFloodList,
-          timeout * 1000
-        );
-        getDeamonVersion(selectedHost, setDeamonVersion);
-      }
+    if (isPolling && selectedHost) {
+      getDeamonVersion(selectedHost.url, setDeamonVersion);
+      fetchData();
 
-      const interval = setInterval((): void => {
-        refreshHostState(
-          selectedHost,
-          setSnapshotList,
-          setFloodList,
-          timeout * 1000
-        );
+      const interval = setInterval(() => {
+        fetchData();
       }, 30000);
 
       return () => clearInterval(interval);
@@ -78,6 +279,32 @@ function Manage() {
 
   return (
     <Box>
+      {errors?.length ? (
+        <Box sx={{ width: "100%" }}>
+          {errors.map((error, index) => (
+            <Collapse key={index} in={errors[index] !== null}>
+              <Alert
+                action={
+                  <IconButton
+                    aria-label="close"
+                    color="inherit"
+                    size="small"
+                    onClick={() => {
+                      removeError(index);
+                    }}
+                  >
+                    <CloseIcon fontSize="inherit" />
+                  </IconButton>
+                }
+                sx={{ mb: 2 }}
+                severity="error"
+              >
+                {error}
+              </Alert>
+            </Collapse>
+          ))}
+        </Box>
+      ) : null}
       {selectedHost ? (
         <Box
           component="main"
@@ -93,20 +320,10 @@ function Manage() {
             }}
           >
             <Typography variant="h4" gutterBottom>
-              {selectedHost}
+              {selectedHost.label}
             </Typography>
             <Box sx={{ mb: "0.5rem", ml: "0.5rem" }}>
-              <IconButton
-                aria-label="refresh"
-                onClick={() =>
-                  refreshHostState(
-                    selectedHost,
-                    setSnapshotList,
-                    setFloodList,
-                    timeout * 1000
-                  )
-                }
-              >
+              <IconButton aria-label="refresh" onClick={fetchData}>
                 <RefreshIcon
                   color="primary"
                   fontSize="large"
@@ -134,19 +351,17 @@ function Manage() {
               gap: "10rem",
             }}
           >
-            <Typography
-              variant="subtitle1"
-              noWrap
-              component="div"
-              // sx={{ fontSize: "1rem" }}
-            >
+            <Typography variant="subtitle1" noWrap component="div">
+              URL: {selectedHost.url}
+            </Typography>
+            <Typography variant="subtitle1" noWrap component="div">
               Deamon Version: {deamonVersion}
             </Typography>
             <TextField
               size="small"
               label="Requests Timeout (seconds)"
               variant="outlined"
-              value={timeout}
+              value={reqTimeout}
               onChange={(e) => handleSetTimeout(e.target.value)}
               inputProps={{ min: 1 }}
               type="number"
@@ -179,14 +394,7 @@ function Manage() {
                           <IconButton
                             edge="end"
                             aria-label="delete"
-                            onClick={() => {
-                              removeSnapshot(
-                                selectedHost,
-                                item.path,
-                                item.method,
-                                timeout * 1000
-                              );
-                            }}
+                            onClick={() => handleRemoveSnap(item)}
                           >
                             <DeleteIcon />
                           </IconButton>
@@ -234,15 +442,7 @@ function Manage() {
                   variant="contained"
                   color="primary"
                   disabled={!snapshotInput}
-                  onClick={() => {
-                    takeSnapshot(
-                      selectedHost,
-                      snapshotInput,
-                      snapMethod,
-                      timeout * 1000
-                    );
-                    setSnapshotInput("");
-                  }}
+                  onClick={handleTakeSnap}
                 >
                   Take
                 </Button>
@@ -269,14 +469,7 @@ function Manage() {
                           <IconButton
                             edge="end"
                             aria-label="stop"
-                            onClick={() =>
-                              stopFlooding(
-                                selectedHost,
-                                item.id,
-                                item.method,
-                                timeout * 1000
-                              )
-                            }
+                            onClick={() => handleStopFlood(item)}
                           >
                             <StopIcon />
                           </IconButton>
@@ -325,19 +518,140 @@ function Manage() {
                   variant="contained"
                   color="primary"
                   disabled={!floodInput}
-                  onClick={() => {
-                    startFlooding(
-                      selectedHost,
-                      floodInput,
-                      floodMethod,
-                      timeout * 1000
-                    );
-                    setFloodInput("");
-                  }}
+                  onClick={handleStartFlood}
                 >
                   Start
                 </Button>
               </Box>
+            </Box>
+          </Box>
+
+          <Box sx={{ display: "flex", gap: 2 }}>
+            <Box
+              sx={{
+                flex: 1,
+                bgcolor: "grey.300",
+                p: 2,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "space-between",
+              }}
+            >
+              {snapshotHistory?.length ? (
+                <Box sx={{ display: "flex", gap: 2 }}>
+                  <List sx={{ width: "100%" }}>
+                    {snapshotHistory.map((item, index) => (
+                      <ListItem key={index}>
+                        <Box display="flex" flexDirection="column" width="100%">
+                          <Box
+                            display="flex"
+                            justifyContent="space-between"
+                            alignItems="center"
+                          >
+                            <ListItemText
+                              primary={`${item.command} ${item.subcommand} ${item.parameters.method} ${item.parameters.path}`}
+                            />
+                            <Box display="flex" alignItems="center">
+                              <Typography
+                                variant="body2"
+                                color={
+                                  item.status === "success"
+                                    ? "green"
+                                    : item.status === "error"
+                                    ? "red"
+                                    : "orange"
+                                }
+                              >
+                                {item.status}
+                              </Typography>
+                              {item.errorMsg && (
+                                <IconButton
+                                  onClick={() => handleToggle(index)}
+                                  size="small"
+                                >
+                                  {openItems[index] ? (
+                                    <ExpandLess />
+                                  ) : (
+                                    <ExpandMore />
+                                  )}
+                                </IconButton>
+                              )}
+                            </Box>
+                          </Box>
+                          {openItems[index] && item.errorMsg && (
+                            <Typography
+                              variant="body2"
+                              color="red"
+                              sx={{ marginTop: 1 }}
+                            >
+                              {item.errorMsg}
+                            </Typography>
+                          )}
+                        </Box>
+                      </ListItem>
+                    ))}
+                  </List>
+                </Box>
+              ) : null}
+            </Box>
+            <Box
+              sx={{
+                flex: 1,
+                bgcolor: "grey.300",
+                p: 2,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "space-between",
+              }}
+            >
+              {floodingHistory?.length ? (
+                <Box sx={{ display: "flex", gap: 2 }}>
+                  <List sx={{ width: "100%" }}>
+                    {floodingHistory.map((item, index) => (
+                      <ListItem key={index}>
+                        <Box display="flex" flexDirection="column" width="100%">
+                          <Box
+                            display="flex"
+                            justifyContent="space-between"
+                            alignItems="center"
+                          >
+                            <ListItemText
+                              primary={`${item.command} ${item.subcommand} ${
+                                item.parameters.method
+                              } ${
+                                item.parameters.path
+                                  ? item.parameters.path
+                                  : item.parameters.id
+                              }  `}
+                            />
+                            <Typography
+                              variant="body2"
+                              color={
+                                item.status === "success"
+                                  ? "green"
+                                  : item.status === "error"
+                                  ? "red"
+                                  : "orange"
+                              }
+                            >
+                              {item.status}
+                            </Typography>
+                          </Box>
+                          {item.errorMsg && (
+                            <Typography
+                              variant="body2"
+                              color="red"
+                              sx={{ marginTop: 1 }}
+                            >
+                              {item.errorMsg}
+                            </Typography>
+                          )}
+                        </Box>
+                      </ListItem>
+                    ))}
+                  </List>
+                </Box>
+              ) : null}
             </Box>
           </Box>
         </Box>

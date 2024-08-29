@@ -76,7 +76,13 @@ const StyledLink = styled(Link)(({ theme }) => ({
 
 function App() {
   const [open, setOpen] = useState(true);
-  const [selectedHost, setSelectedHost] = useState("");
+  const [selectedHost, setSelectedHost] = useState<
+    | {
+        label: string;
+        url: string;
+      }
+    | undefined
+  >(undefined);
 
   const handleDrawerOpen = () => {
     setOpen(true);
@@ -109,12 +115,7 @@ function App() {
             <Box>
               {pages.map((page) => (
                 <Button key={page}>
-                  <StyledLink
-                    to={`/${page.toLowerCase()}`}
-                    // isActive={currentPage === page.toLowerCase()}
-                  >
-                    {page}
-                  </StyledLink>
+                  <StyledLink to={`/${page.toLowerCase()}`}>{page}</StyledLink>
                 </Button>
               ))}
             </Box>
