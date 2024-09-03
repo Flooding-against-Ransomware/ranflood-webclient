@@ -1,6 +1,7 @@
 import axios from "axios";
 import { SnapshotObject, FloodObject } from "../models/Models";
 import { CommandStatus } from "../models/CommandStatus";
+import { CommandBody } from "../models/CommandBody";
 
 type SetSnapshotFunction = (list: SnapshotObject[]) => void;
 type SetFloodFunction = (list: FloodObject[]) => void;
@@ -59,132 +60,26 @@ export async function refreshHostState(
   }
 }
 
-export async function takeSnapshot(
+export async function commandRequest(
   host: string,
-  path: string,
-  method: string,
-  timeout: number,
-  setError: SetError
+  commandBody: CommandBody,
+  timeout: number
 ): Promise<string | undefined> {
-  try {
-    const response = await axios.post(
-      host,
-      {
-        command: "snapshot",
-        subcommand: "add",
-        parameters: {
-          method,
-          path,
-        },
+  const response = await axios.post(
+    host,
+    {
+      command: commandBody.command,
+      subcommand: commandBody.subcommand,
+      parameters: commandBody.parameters,
+    },
+    {
+      headers: {
+        "Content-Type": "application/json",
       },
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-        timeout,
-      }
-    );
-    return response.data.id;
-  } catch (error) {
-    console.error("Error:", error);
-    setError("Failed to take snapshot.");
-  }
-}
-
-export async function removeSnapshot(
-  host: string,
-  path: string,
-  method: string,
-  timeout: number,
-  setError: SetError
-): Promise<string | undefined> {
-  try {
-    const response = await axios.post(
-      host,
-      {
-        command: "snapshot",
-        subcommand: "remove",
-        parameters: {
-          method,
-          path,
-        },
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-        timeout,
-      }
-    );
-    return response.data.id;
-  } catch (error) {
-    console.error("Error:", error);
-    setError("Failed to remove Snapshot");
-  }
-}
-
-export async function startFlooding(
-  host: string,
-  path: string,
-  method: string,
-  timeout: number,
-  setError: SetError
-): Promise<string | undefined> {
-  try {
-    const response = await axios.post(
-      host,
-      {
-        command: "flood",
-        subcommand: "start",
-        parameters: {
-          method,
-          path,
-        },
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-        timeout,
-      }
-    );
-    return response.data.id;
-  } catch (error) {
-    console.error("Error:", error);
-    setError("Failed to start flooding.");
-  }
-}
-
-export async function stopFlooding(
-  host: string,
-  id: string,
-  method: string,
-  timeout: number,
-  setError: SetError
-): Promise<string | undefined> {
-  try {
-    const response = await axios.post(
-      host,
-      {
-        command: "flood",
-        subcommand: "stop",
-        parameters: {
-          method,
-          id,
-        },
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-        timeout,
-      }
-    );
-    return response.data.id;
-  } catch (error) {
-    console.error("Error:", error);
-    setError("Failed to stop flooding.");
-  }
+      timeout,
+    }
+  );
+  return response.data.id;
 }
 
 export async function getDeamonVersion(

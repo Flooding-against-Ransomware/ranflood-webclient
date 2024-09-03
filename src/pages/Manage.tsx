@@ -27,17 +27,15 @@ import { CommandStatus } from "../models/CommandStatus";
 import { SnapshotObject, FloodObject } from "../models/Models";
 import {
   refreshHostState,
-  takeSnapshot,
-  removeSnapshot,
-  startFlooding,
-  stopFlooding,
+  commandRequest,
   getDeamonVersion,
   getCommandStatus,
 } from "../services/api";
 import { useSelectedHostContext } from "../contexts/SelectedHostContext";
+import { CommandBody } from "../models/CommandBody";
 
 const MAX_ERROR_BUFFER_LENGTH = 10;
-const MAX_NUM_BUFFER_REQUEST = 20;
+const MAX_NUM_BUFFER_REQUEST = 60;
 
 function Manage() {
   const selectedHost = useSelectedHostContext();
@@ -149,104 +147,147 @@ function Manage() {
     }
   };
 
-  // dovrei gestire gli errori qui invece che dentro api
   const handleTakeSnap = async () => {
     if (!selectedHost) throw new Error("Need to select a host");
 
-    const id = await takeSnapshot(
-      selectedHost.url,
-      snapshotInput,
-      snapMethod,
-      reqTimeout * 1000,
-      handleNewError
-    );
-    if (id)
-      addCommandToSnapshotHistory({
+    try {
+      const commandBody: CommandBody = {
         command: "snapshot",
-        subcommand: "add",
-        status: "in progress",
-        id,
+        subcommand: "take",
         parameters: {
           method: snapMethod,
           path: snapshotInput,
         },
-      });
-    setSnapshotInput("");
+      };
+      const id = await commandRequest(
+        selectedHost.url,
+        commandBody,
+        reqTimeout * 1000
+      );
+      if (id)
+        addCommandToSnapshotHistory({
+          command: "snapshot",
+          subcommand: "add",
+          status: "in progress",
+          id,
+          parameters: {
+            method: snapMethod,
+            path: snapshotInput,
+          },
+        });
+      setSnapshotInput("");
+    } catch (error) {
+      console.error("Error:", error);
+      handleNewError("Failed to take snapshot for " + snapshotInput);
+    }
   };
 
-  // dovrei gestire gli errori qui invece che dentro api
   const handleRemoveSnap = async (item: SnapshotObject) => {
     if (!selectedHost) throw new Error("Need to select a host");
 
-    const id = await removeSnapshot(
-      selectedHost.url,
-      item.path,
-      item.method,
-      reqTimeout * 1000,
-      handleNewError
-    );
-    if (id) {
-      addCommandToSnapshotHistory({
+    try {
+      const commandBody: CommandBody = {
         command: "snapshot",
         subcommand: "remove",
-        status: "in progress",
-        id,
         parameters: {
           method: item.method,
           path: item.path,
         },
-      });
+      };
+
+      const id = await commandRequest(
+        selectedHost.url,
+        commandBody,
+        reqTimeout * 1000
+      );
+      if (id) {
+        addCommandToSnapshotHistory({
+          command: "snapshot",
+          subcommand: "remove",
+          status: "in progress",
+          id,
+          parameters: {
+            method: item.method,
+            path: item.path,
+          },
+        });
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      handleNewError("Failed to remove snapshot for " + item.path);
     }
   };
 
-  // dovrei gestire gli errori qui invece che dentro api
   const handleStartFlood = async () => {
     if (!selectedHost) throw new Error("Need to select a host");
 
-    const id = await startFlooding(
-      selectedHost.url,
-      floodInput,
-      floodMethod,
-      reqTimeout * 1000,
-      handleNewError
-    );
-    if (id)
-      addCommandToFloodingHistory({
+    try {
+      const commandBody: CommandBody = {
         command: "flood",
         subcommand: "start",
-        status: "in progress",
-        id,
         parameters: {
           method: floodMethod,
           path: floodInput,
         },
-      });
+      };
 
-    setFloodInput("");
+      const id = await commandRequest(
+        selectedHost.url,
+        commandBody,
+        reqTimeout * 1000
+      );
+      if (id)
+        addCommandToFloodingHistory({
+          command: "flood",
+          subcommand: "start",
+          status: "in progress",
+          id,
+          parameters: {
+            method: floodMethod,
+            path: floodInput,
+          },
+        });
+
+      setFloodInput("");
+    } catch (error) {
+      console.error("Error:", error);
+      handleNewError("Failed to start flooding for " + floodInput);
+    }
   };
 
-  // dovrei gestire gli errori qui invece che dentro api
   const handleStopFlood = async (item: FloodObject) => {
     if (!selectedHost) throw new Error("Need to select a host");
 
-    const id = await stopFlooding(
-      selectedHost.url,
-      item.id,
-      item.method,
-      reqTimeout * 1000,
-      handleNewError
-    );
-    if (id)
-      addCommandToFloodingHistory({
+    try {
+      const commandBody: CommandBody = {
         command: "flood",
         subcommand: "stop",
-        status: "in progress",
-        id,
         parameters: {
           method: item.method,
           id: item.id,
         },
-      });
+      };
+
+      const id = await commandRequest(
+        selectedHost.url,
+        commandBody,
+        reqTimeout * 1000
+      );
+      if (id)
+        addCommandToFloodingHistory({
+          command: "flood",
+          subcommand: "stop",
+          status: "in progress",
+          id,
+          parameters: {
+            method: item.method,
+            id: item.id,
+          },
+        });
+    } catch (error) {
+      console.error("Error:", error);
+      handleNewError("Failed to stop flooding " + item.id);
+    }
   };
 
   const removeError = (index: number) => {
