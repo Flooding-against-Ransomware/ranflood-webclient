@@ -20,6 +20,7 @@ import {
   removeStrategyFromLocalStorage,
 } from "../services/jsonService";
 import { Strategy } from "../models/Strategy";
+import StrategiesEngine from "../services/strategiesEngine";
 
 function Strategies() {
   let selectedHost = useSelectedHostContext();
@@ -48,7 +49,19 @@ function Strategies() {
     setStrategies(getStrategiesFromLocalStorage());
   };
 
-  const handleRunStrategy = (strategyName: string) => {};
+  const handleRunStrategy = (strategy: Strategy) => {
+    if (!selectedHost) throw new Error("Need to select a host");
+
+    const engine = new StrategiesEngine(strategy.commands, selectedHost.url);
+    engine
+      .run()
+      .then(() => {
+        console.log("All commands executed successfully");
+      })
+      .catch((error) => {
+        console.error("Error during execution:", error);
+      });
+  };
 
   const handleDownload = () => {
     const strategies = getStrategiesFromLocalStorage();
@@ -161,7 +174,7 @@ function Strategies() {
                         variant="outlined"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleRunStrategy(strategy.name);
+                          handleRunStrategy(strategy);
                         }}
                       >
                         <PlayArrowIcon />
@@ -170,7 +183,7 @@ function Strategies() {
                   </Box>
                 </AccordionSummary>
                 <AccordionDetails>
-                  {strategy.actions.map((action, actionIndex) => (
+                  {strategy.commands.map((action, actionIndex) => (
                     <Paper key={actionIndex} sx={{ mb: 2, p: 2 }}>
                       <Typography variant="h6" sx={{ mb: 1 }}>
                         <strong>Action {actionIndex + 1}</strong>

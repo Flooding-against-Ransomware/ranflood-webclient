@@ -1,35 +1,69 @@
 [
   {
-    "name": "example-strategy1",
-    "actions": [
+    "name": "example-strategy11",
+    "commands": [
       {
+        "id": "0",
         "command": "snapshot",
         "subcommand": "take",
         "method": "on-the-fly",
         "path": "/tmp/prov"
       },
       {
+        "id": "1",
         "command": "flood",
         "subcommand": "start",
         "method": "on-the-fly",
         "path": "/tmp/prov"
+      },
+      {
+        "id": "2",
+        "command": "flood",
+        "subcommand": "start",
+        "method": "on-the-fly",
+        "path": "/tmp/provaXX",
+        "dependencies": ["3"]
+      },
+      {
+        "id": "3",
+        "command": "snapshot",
+        "subcommand": "take",
+        "method": "on-the-fly",
+        "path": "/tmp/provXX"
       }
     ]
   },
   {
-    "name": "example-strategy44",
-    "actions": [
+    "name": "test-strat",
+    "commands": [
       {
-        "command": "snapshot",
-        "subcommand": "take",
-        "method": "shadow-copy",
-        "path": "/tmp/prova22"
-      },
-      {
+        "id": "0",
         "command": "flood",
         "subcommand": "start",
-        "method": "shadow-copy",
-        "path": "/tmp/prova22"
+        "method": "on-the-fly",
+        "path": "/tmp/prova"
+      },
+      {
+        "id": "1",
+        "command": "snapshot",
+        "subcommand": "take",
+        "method": "on-the-fly",
+        "path": "/tmp/prova"
+      },
+      {
+        "id": "2",
+        "command": "flood",
+        "subcommand": "start",
+        "method": "on-the-fly",
+        "path": "/tmp/provaXX",
+        "dependencies": ["3"]
+      },
+      {
+        "id": "3",
+        "command": "snapshot",
+        "subcommand": "take",
+        "method": "on-the-fly",
+        "path": "/tmp/provXX"
       }
     ]
   }

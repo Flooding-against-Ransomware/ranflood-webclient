@@ -153,7 +153,7 @@ function Manage() {
     try {
       const commandBody: CommandBody = {
         command: "snapshot",
-        subcommand: "take",
+        subcommand: "add",
         parameters: {
           method: snapMethod,
           path: snapshotInput,
