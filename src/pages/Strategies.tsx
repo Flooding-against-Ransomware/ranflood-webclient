@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import {
   Accordion,
   AccordionDetails,
@@ -13,20 +13,37 @@ import {
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import DeleteIcon from "@mui/icons-material/Delete";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import StopIcon from "@mui/icons-material/Stop";
 import { useSelectedHostContext } from "../contexts/SelectedHostContext";
 import {
   setStrategiesToLocalStorage,
   getStrategiesFromLocalStorage,
   removeStrategyFromLocalStorage,
-} from "../services/jsonService";
+} from "../services/localStorageService";
 import { Strategy } from "../models/Strategy";
-import StrategiesEngine from "../services/strategiesEngine";
+import { WebSocketContext } from "../contexts/WebSocketProvider";
+
+import { StrategiesEngine } from "../services/strategiesEngine";
 
 function Strategies() {
-  let selectedHost = useSelectedHostContext();
+  const selectedHost = useSelectedHostContext();
+  const webSocketContext = useContext(WebSocketContext);
+
+  //gestisce lo stato della strategia attualmente attiva
+  const [commandStatus, setCommandStatus] = useState(new Map());
+  const updateCommandStatus = (key: string, value: string) => {
+    setCommandStatus((map) => new Map(map.set(key, value)));
+  };
 
   const [fileName, setFileName] = useState<string>("");
   const [strategies, setStrategies] = useState<Strategy[]>([]);
+  const [activeStrategy, setActiveStrategy] = useState<string | undefined>(
+    undefined
+  );
+  const [isStratRunning, setIsStratRunning] = useState<boolean>(false);
+  const [strategyEngine, setStrategyEngine] = useState<StrategiesEngine | null>(
+    null
+  );
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -50,17 +67,14 @@ function Strategies() {
   };
 
   const handleRunStrategy = (strategy: Strategy) => {
-    if (!selectedHost) throw new Error("Need to select a host");
+    if (!webSocketContext) throw new Error("Need to connect to a host");
 
-    const engine = new StrategiesEngine(strategy.commands, selectedHost.url);
-    engine
-      .run()
-      .then(() => {
-        console.log("All commands executed successfully");
-      })
-      .catch((error) => {
-        console.error("Error during execution:", error);
-      });
+    try {
+      setActiveStrategy(strategy.name);
+      strategyEngine?.runStrategy(strategy);
+    } catch (error) {
+      console.error("Errore durante l'esecuzione della strategia:", error);
+    }
   };
 
   const handleDownload = () => {
@@ -80,6 +94,19 @@ function Strategies() {
     const fetchedStrategies = getStrategiesFromLocalStorage();
     setStrategies(fetchedStrategies);
   }, []);
+
+  useEffect(() => {
+    if (webSocketContext) {
+      const newstrategyEngine = new StrategiesEngine(
+        webSocketContext.sendMessage,
+        updateCommandStatus,
+        webSocketContext.registerMessageHandler,
+        setIsStratRunning
+      );
+
+      setStrategyEngine(newstrategyEngine);
+    }
+  }, [webSocketContext]);
 
   return (
     <Box>
@@ -169,46 +196,63 @@ function Strategies() {
                       >
                         <DeleteIcon />
                       </Button>
-                      <Button
-                        color="success"
-                        variant="outlined"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleRunStrategy(strategy);
-                        }}
-                      >
-                        <PlayArrowIcon />
-                      </Button>
+                      {strategy.name === activeStrategy && isStratRunning ? (
+                        <Button
+                          color="warning"
+                          variant="outlined"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            strategyEngine?.stopExecution();
+                          }}
+                        >
+                          <StopIcon />
+                        </Button>
+                      ) : (
+                        <Button
+                          color="success"
+                          variant="outlined"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRunStrategy(strategy);
+                          }}
+                        >
+                          <PlayArrowIcon />
+                        </Button>
+                      )}
                     </Box>
                   </Box>
                 </AccordionSummary>
                 <AccordionDetails>
-                  {strategy.commands.map((action, actionIndex) => (
-                    <Paper key={actionIndex} sx={{ mb: 2, p: 2 }}>
+                  {strategy.commands.map((cmd, cmdIndex) => (
+                    <Paper key={cmdIndex} sx={{ mb: 2, p: 2 }}>
                       <Typography variant="h6" sx={{ mb: 1 }}>
-                        <strong>Action {actionIndex + 1}</strong>
+                        <strong>Action {cmdIndex + 1}</strong>
                       </Typography>
                       <Grid container spacing={2}>
                         <Grid item xs={3}>
                           <Typography variant="body1">
-                            <strong>Command:</strong> {action.command}
+                            <strong>Command:</strong>{" "}
+                            {cmd.command + " " + cmd.subcommand}
                           </Typography>
                         </Grid>
                         <Grid item xs={3}>
                           <Typography variant="body1">
-                            <strong>Subcommand:</strong> {action.subcommand}
+                            <strong>Method:</strong> {cmd.method}
                           </Typography>
                         </Grid>
                         <Grid item xs={3}>
                           <Typography variant="body1">
-                            <strong>Method:</strong> {action.method}
+                            <strong>Path:</strong> {cmd.path}
                           </Typography>
                         </Grid>
-                        <Grid item xs={3}>
-                          <Typography variant="body1">
-                            <strong>Path:</strong> {action.path}
-                          </Typography>
-                        </Grid>
+                        {strategy.name === activeStrategy ? (
+                          <Grid item xs={3}>
+                            <Typography variant="body1">
+                              <strong>Status:</strong>{" "}
+                              {commandStatus.get(cmd.id)}
+                            </Typography>
+                          </Grid>
+                        ) : null}
                       </Grid>
                     </Paper>
                   ))}

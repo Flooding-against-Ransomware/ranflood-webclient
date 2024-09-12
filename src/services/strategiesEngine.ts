@@ -1,51 +1,123 @@
-import { Command, CommandStatus } from "../models/Strategy";
+import { StratCommand, Strategy } from "../models/Strategy";
 import { CommandBody } from "../models/CommandBody";
-import { commandRequest } from "./api";
+import { CommandStatus } from "../models/CommandStatus";
+import { v4 as uuidv4 } from "uuid";
 
-export default class StrategiesEngine {
-  private commands: Command[];
-  private commandStatus: Map<string, CommandStatus>;
-  private host: string;
+export class StrategiesEngine {
+  private strategy: Strategy | undefined;
+  private commandStat: Map<string, string> = new Map();
+  //mappa id settato dallo user a uuid usato nel server
+  private uuidMap: Map<string, string> = new Map();
+  private sendMessage: (message: string) => void;
+  private updateCommandStatus: (key: string, value: string) => void;
+  private isStopped: boolean = false;
+  private dependencyGraph: Map<string, string[]> = new Map();
+  private reverseDependencyGraph: Map<string, string[]> = new Map(); // Per tenere traccia dei comandi bloccati da un comando
+  private setIsRunning: (status: boolean) => void;
 
-  constructor(commands: Command[], host: string) {
-    this.commands = commands;
-    this.commandStatus = new Map();
-    this.host = host;
+  constructor(
+    sendMessage: (message: string) => void,
+    updateCommandStatus: (key: string, value: string) => void,
+    messageHandler: (handler: (message: string) => void) => void,
+    setIsRunning: (status: boolean) => void
+  ) {
+    this.sendMessage = sendMessage;
+    this.updateCommandStatus = updateCommandStatus;
+    this.strategy = undefined;
+    this.setIsRunning = setIsRunning;
 
-    this.commands.forEach((command) => {
-      this.commandStatus.set(command.id, {
-        id: command.id,
-        status: "pending",
-      });
+    //setto l'handler per il ws
+    messageHandler((message) => {
+      console.log("Strategies page received:", message);
+
+      let msg: CommandStatus;
+      try {
+        msg = JSON.parse(message);
+
+        console.log(this.commandStat);
+
+        switch (msg.command) {
+          case "snapshot":
+            if (msg.subcommand === "add" || msg.subcommand === "remove") {
+              this.onCommandCompleted(this.getIdByUuid(msg.id), msg.status);
+            }
+            break;
+
+          case "flood":
+            if (msg.subcommand === "start") {
+              this.onCommandCompleted(this.getIdByUuid(msg.id), msg.status);
+            }
+            break;
+
+          default:
+            break;
+        }
+      } catch (error) {
+        console.error(error);
+      }
     });
   }
 
-  private canExecute(command: Command): boolean {
-    // explicit dependencies
-    const explicitDepsSatisfied = (command.dependencies || []).every(
-      (depId) => this.commandStatus.get(depId)?.status === "completed"
-    );
+  public runStrategy(strategy: Strategy): void {
+    this.setIsRunning(true);
+    this.commandStat.clear();
+    this.uuidMap.clear();
+    this.dependencyGraph.clear();
+    this.reverseDependencyGraph.clear();
+    this.strategy = strategy;
 
-    // implicit dependencies
-    // const implicitDepsSatisfied = this.commands
-    //   .filter((cmd) => cmd.path === command.path && cmd.id !== command.id)
-    //   .every(
-    //     (cmd) =>
-    //       this.commandStatus.get(cmd.id)?.status === "completed" ||
-    //       cmd.id === command.id
-    //   );
+    this.strategy.commands.forEach((command) => {
+      const uuid: any = uuidv4();
+      this.uuidMap.set(command.id, uuid);
+      this.commandStat.set(command.id, "pending");
 
-    return explicitDepsSatisfied; // && implicitDepsSatisfied;
-  }
+      // Popola il DAG
+      this.dependencyGraph.set(command.id, command.dependencies || []);
 
-  private async executeCommand(command: Command): Promise<void> {
-    try {
-      this.commandStatus.set(command.id, {
-        id: command.id,
-        status: "in-progress",
+      // Popola il reverse DAG per i comandi che dipendono da questo
+      (command.dependencies || []).forEach((dep) => {
+        if (!this.reverseDependencyGraph.has(dep)) {
+          this.reverseDependencyGraph.set(dep, []);
+        }
+        this.reverseDependencyGraph.get(dep)?.push(command.id);
       });
 
+      this.updateCommandStatus(command.id, "pending");
+    });
+
+    this.executeCommands(strategy.commands);
+  }
+
+  private canExecute(command: StratCommand): boolean {
+    const explicitDepsSatisfied = (command.dependencies || []).every(
+      (depId) => this.commandStat.get(depId) === "success"
+    );
+    return explicitDepsSatisfied;
+  }
+
+  private getUuidFromId(id: string): string {
+    return this.uuidMap.get(id) || "";
+  }
+  private getIdByUuid(value: string): string {
+    for (let [key, val] of this.uuidMap.entries()) {
+      if (val === value) {
+        return key;
+      }
+    }
+    return ""; // Nessuna corrispondenza trovata
+  }
+
+  private runCommand(command: StratCommand): void {
+    try {
+      if (this.isStopped) {
+        throw new Error("Execution stopped");
+      }
+
+      this.commandStat.set(command.id, "in progress");
+      this.updateCommandStatus(command.id, "in progress");
+
       const commandBody: CommandBody = {
+        id: this.getUuidFromId(command.id),
         command: command.command,
         subcommand: command.subcommand,
         parameters: {
@@ -54,50 +126,86 @@ export default class StrategiesEngine {
         },
       };
 
-      const id = await commandRequest(this.host, commandBody, 10);
-      // MANCA LA PARTE PER GESTIRE LO STATO DELLE RICHIESTE, POLLING O WEBSOCKET
-      console.log(
-        `eseguito comando ${command.command} ${command.subcommand} ${command.path}`
-      );
+      console.log("Executing command", commandBody); // SOLO PER DEBUG
+      this.sendMessage(JSON.stringify(commandBody));
 
-      // QUESTO VA SETTATO SOLO DOPO LA RICHIESTA A GETBUFFER
-      this.commandStatus.set(command.id, {
-        id: command.id,
-        status: "completed",
-      });
+      // nel caso di flood start dobbiamo pianificare anche flood stop
+      if (
+        command.command === "flood" &&
+        command.subcommand === "start" &&
+        command.duration
+      ) {
+        setTimeout(() => {
+          commandBody.subcommand = "stop";
+          commandBody.parameters.id = this.getUuidFromId(command.id);
+          console.log("sending flood stop");
+          this.sendMessage(JSON.stringify(commandBody));
+        }, command.duration * 1000);
+      }
     } catch (error) {
-      // QUESTO VA SETTATO ANCHE DOPO LA RICHIESTA A GETBUFFER
-      this.commandStatus.set(command.id, {
-        id: command.id,
-        status: "failed",
-      });
+      this.updateCommandStatus(command.id, "error");
+      this.commandStat.set(command.id, "error");
       console.error(`Failed to execute command ${command.id}:`, error);
     }
   }
 
-  public async run(): Promise<void> {
-    while (this.commandStatus.size > 0) {
-      const pendingCommands = this.commands.filter(
-        (cmd) => this.commandStatus.get(cmd.id)?.status === "pending"
-      );
+  // Esegue tutti i comandi controllando che non abbiano dipendenze
+  private async executeCommands(commands: StratCommand[]): Promise<void> {
+    const pendingCommands = commands.filter(
+      (cmd) => this.commandStat.get(cmd.id) === "pending"
+    );
 
-      if (pendingCommands.length === 0) {
-        break; // Tutti i comandi sono stati eseguiti
-      }
+    const executableCommands = pendingCommands.filter((cmd) =>
+      this.canExecute(cmd)
+    );
 
-      // Esegui i comandi che possono essere eseguiti
-      const executableCommands = pendingCommands.filter(
-        this.canExecute.bind(this)
-      );
-      if (executableCommands.length === 0) {
-        throw new Error(
-          "Deadlock detected: No commands can be executed due to unmet dependencies."
-        );
-      }
+    //manca solo la gestione dei deadlock e capire dove mettere il comando per bloccare l'esecuzione
 
-      await Promise.all(
-        executableCommands.map((cmd) => this.executeCommand(cmd))
-      );
+    executableCommands.map((cmd) => this.runCommand(cmd));
+  }
+
+  private onCommandCompleted(commandId: string, status: string): void {
+    this.commandStat.set(commandId, status);
+    this.updateCommandStatus(commandId, status);
+
+    const allCompleted = this.strategy?.commands.every(
+      (depId) =>
+        this.commandStat.get(depId.id) === "success" ||
+        this.commandStat.get(depId.id) === "error"
+    );
+
+    if (allCompleted) {
+      this.setIsRunning(false);
+      return;
     }
+
+    // Ottieni i comandi che dipendono da questo e verifica se possono essere eseguiti
+    const dependentCommands = this.reverseDependencyGraph.get(commandId) || [];
+
+    dependentCommands.forEach((depCommandId) => {
+      // Verifica se tutte le dipendenze di questo comando sono completate
+      const canExecute = (this.dependencyGraph.get(depCommandId) || []).every(
+        (depId) => this.commandStat.get(depId) === "success"
+      );
+
+      if (canExecute) {
+        const commandToRun = this.strategy!.commands.find(
+          (cmd) => cmd.id === depCommandId
+        );
+        if (commandToRun) {
+          this.runCommand(commandToRun); // Esegui il comando sbloccato
+        }
+      }
+    });
+  }
+
+  public editCmdStatus(id: string, cmd: string) {
+    this.commandStat.set(id, cmd);
+    this.updateCommandStatus(id, cmd);
+  }
+
+  public stopExecution() {
+    this.setIsRunning(false);
+    this.isStopped = true;
   }
 }

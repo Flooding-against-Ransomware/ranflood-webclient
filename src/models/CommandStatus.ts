@@ -3,9 +3,9 @@ export interface CommandStatus {
   subcommand: string;
   status: "success" | "error" | "in progress";
   id: string;
-  errorMsg?: string;
+  data?: string;
   parameters: {
-    method: string;
+    method?: string;
     path?: string;
     id?: string;
   };

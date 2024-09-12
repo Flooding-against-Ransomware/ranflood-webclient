@@ -1,4 +1,5 @@
 export interface CommandBody {
+  id?: string;
   command: string;
   subcommand: string;
   parameters: {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useContext } from "react";
 import {
   Typography,
   Box,
@@ -12,8 +12,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Switch,
-  FormControlLabel,
   Collapse,
   Alert,
 } from "@mui/material";
@@ -25,20 +23,16 @@ import { ExpandMore, ExpandLess } from "@mui/icons-material";
 
 import { CommandStatus } from "../models/CommandStatus";
 import { SnapshotObject, FloodObject } from "../models/Models";
-import {
-  refreshHostState,
-  commandRequest,
-  getDeamonVersion,
-  getCommandStatus,
-} from "../services/api";
+
 import { useSelectedHostContext } from "../contexts/SelectedHostContext";
 import { CommandBody } from "../models/CommandBody";
+import { WebSocketContext } from "../contexts/WebSocketProvider";
 
 const MAX_ERROR_BUFFER_LENGTH = 10;
-const MAX_NUM_BUFFER_REQUEST = 60;
 
 function Manage() {
   const selectedHost = useSelectedHostContext();
+  const webSocketContext = useContext(WebSocketContext);
 
   const [snapshotInput, setSnapshotInput] = useState<string>("");
   const [snapMethod, setSnapMethod] = useState<string>("ON_THE_FLY");
@@ -48,8 +42,6 @@ function Manage() {
   const [snapshotList, setSnapshotList] = useState<SnapshotObject[]>([]);
   const [floodList, setFloodList] = useState<FloodObject[]>([]);
 
-  const [isPolling, setIsPolling] = useState<boolean>(true);
-  const [reqTimeout, setReqTimeout] = useState<number>(10);
   const [deamonVersion, setDeamonVersion] = useState<string>("");
 
   const [errors, setErrors] = useState<string[]>([]);
@@ -70,72 +62,6 @@ function Manage() {
     });
   };
 
-  const handleSetTimeout = (newTimeout: string) => {
-    const t = parseInt(newTimeout);
-    setReqTimeout(t);
-  };
-
-  const pollCommandStatus = async (
-    item: CommandStatus,
-    setHistory: React.Dispatch<React.SetStateAction<CommandStatus[]>>
-  ) => {
-    let requestCount = 0;
-
-    const updateStatus = async () => {
-      if (!selectedHost) throw new Error("Need to select a host");
-
-      requestCount++;
-
-      const updatedItem = await getCommandStatus(
-        selectedHost.url,
-        item.id,
-        reqTimeout * 1000,
-        handleNewError
-      );
-      if (updatedItem === undefined) {
-        handleNewError(
-          "Error getting command status for command id: " + item.id
-        );
-        return;
-      }
-
-      if (updatedItem.status === "in progress" && requestCount < 20) {
-        setTimeout(updateStatus, 1000);
-      } else if (requestCount >= MAX_NUM_BUFFER_REQUEST) {
-        updatedItem.errorMsg = "Timeout";
-        updatedItem.status = "error";
-        //aggiorno l'oggetto
-        setHistory((prev) => {
-          return prev.map((h) => (h.id === updatedItem.id ? updatedItem : h));
-        });
-        handleNewError(
-          `Polling stopped after ${MAX_NUM_BUFFER_REQUEST} requests for command: ${item.command} ${item.subcommand} with id: ${item.id}`
-        );
-      } else {
-        //aggiorno l'oggetto
-        setHistory((prev) => {
-          return prev.map((h) => (h.id === updatedItem.id ? updatedItem : h));
-        });
-      }
-    };
-
-    updateStatus();
-  };
-
-  const addCommandToSnapshotHistory = (command: CommandStatus) => {
-    setSnapshotHistory((prev) => [command, ...prev]);
-    if (command.status === "in progress") {
-      pollCommandStatus(command, setSnapshotHistory);
-    }
-  };
-
-  const addCommandToFloodingHistory = (command: CommandStatus) => {
-    setFloodingHistory((prev) => [command, ...prev]);
-    if (command.status === "in progress") {
-      pollCommandStatus(command, setFloodingHistory);
-    }
-  };
-
   const handleNewError = (error: string) => {
     if (errors.length >= MAX_ERROR_BUFFER_LENGTH) {
       setErrors((prevErrors) => [
@@ -148,7 +74,7 @@ function Manage() {
   };
 
   const handleTakeSnap = async () => {
-    if (!selectedHost) throw new Error("Need to select a host");
+    if (!webSocketContext) throw new Error("Need to connect to a host");
 
     try {
       const commandBody: CommandBody = {
@@ -159,31 +85,18 @@ function Manage() {
           path: snapshotInput,
         },
       };
-      const id = await commandRequest(
-        selectedHost.url,
-        commandBody,
-        reqTimeout * 1000
-      );
-      if (id)
-        addCommandToSnapshotHistory({
-          command: "snapshot",
-          subcommand: "add",
-          status: "in progress",
-          id,
-          parameters: {
-            method: snapMethod,
-            path: snapshotInput,
-          },
-        });
+
+      webSocketContext.sendMessage(JSON.stringify(commandBody));
+
       setSnapshotInput("");
     } catch (error) {
-      console.error("Error:", error);
-      handleNewError("Failed to take snapshot for " + snapshotInput);
+      console.error("Error taking snapshot:", error);
+      handleNewError("Error taking snapshot: " + snapshotInput);
     }
   };
 
   const handleRemoveSnap = async (item: SnapshotObject) => {
-    if (!selectedHost) throw new Error("Need to select a host");
+    if (!webSocketContext) throw new Error("Need to connect to a host");
 
     try {
       const commandBody: CommandBody = {
@@ -195,23 +108,7 @@ function Manage() {
         },
       };
 
-      const id = await commandRequest(
-        selectedHost.url,
-        commandBody,
-        reqTimeout * 1000
-      );
-      if (id) {
-        addCommandToSnapshotHistory({
-          command: "snapshot",
-          subcommand: "remove",
-          status: "in progress",
-          id,
-          parameters: {
-            method: item.method,
-            path: item.path,
-          },
-        });
-      }
+      webSocketContext.sendMessage(JSON.stringify(commandBody));
     } catch (error) {
       console.error("Error:", error);
       handleNewError("Failed to remove snapshot for " + item.path);
@@ -219,7 +116,7 @@ function Manage() {
   };
 
   const handleStartFlood = async () => {
-    if (!selectedHost) throw new Error("Need to select a host");
+    if (!webSocketContext) throw new Error("Need to connect to a host");
 
     try {
       const commandBody: CommandBody = {
@@ -231,22 +128,7 @@ function Manage() {
         },
       };
 
-      const id = await commandRequest(
-        selectedHost.url,
-        commandBody,
-        reqTimeout * 1000
-      );
-      if (id)
-        addCommandToFloodingHistory({
-          command: "flood",
-          subcommand: "start",
-          status: "in progress",
-          id,
-          parameters: {
-            method: floodMethod,
-            path: floodInput,
-          },
-        });
+      webSocketContext.sendMessage(JSON.stringify(commandBody));
 
       setFloodInput("");
     } catch (error) {
@@ -256,7 +138,7 @@ function Manage() {
   };
 
   const handleStopFlood = async (item: FloodObject) => {
-    if (!selectedHost) throw new Error("Need to select a host");
+    if (!webSocketContext) throw new Error("Need to connect to a host");
 
     try {
       const commandBody: CommandBody = {
@@ -268,22 +150,7 @@ function Manage() {
         },
       };
 
-      const id = await commandRequest(
-        selectedHost.url,
-        commandBody,
-        reqTimeout * 1000
-      );
-      if (id)
-        addCommandToFloodingHistory({
-          command: "flood",
-          subcommand: "stop",
-          status: "in progress",
-          id,
-          parameters: {
-            method: item.method,
-            id: item.id,
-          },
-        });
+      webSocketContext.sendMessage(JSON.stringify(commandBody));
     } catch (error) {
       console.error("Error:", error);
       handleNewError("Failed to stop flooding " + item.id);
@@ -299,29 +166,118 @@ function Manage() {
     });
   };
 
-  const fetchData = async () => {
-    await refreshHostState(
-      selectedHost!.url,
-      setSnapshotList,
-      setFloodList,
-      reqTimeout * 1000,
-      handleNewError
-    );
+  const handleRefreshList = () => {
+    if (!webSocketContext) throw new Error("Need to connect to a host");
+
+    const commandBody = {
+      command: "snapshot",
+      subcommand: "list",
+    };
+    webSocketContext.sendMessage(JSON.stringify(commandBody));
+    commandBody.command = "flood";
+    webSocketContext.sendMessage(JSON.stringify(commandBody));
   };
 
-  // gestisce quando refreshare snapshot e flooding
   useEffect(() => {
-    if (isPolling && selectedHost) {
-      getDeamonVersion(selectedHost.url, setDeamonVersion);
-      fetchData();
+    const onOpenHandler = async () => {
+      try {
+        handleRefreshList();
+        const commandBody = {
+          command: "version",
+          subcommand: "get",
+        };
+        webSocketContext!.sendMessage(JSON.stringify(commandBody));
+      } catch (error) {
+        console.error(error);
+      }
+    };
 
-      const interval = setInterval(() => {
-        fetchData();
-      }, 30000);
+    if (webSocketContext && selectedHost) {
+      webSocketContext.registerMessageHandler((message) => {
+        console.log("Manage page received:", message);
 
-      return () => clearInterval(interval);
+        let msg: CommandStatus;
+        try {
+          msg = JSON.parse(message);
+
+          switch (msg.command) {
+            case "snapshot":
+              if (msg.subcommand === "list") {
+                const data = JSON.parse(msg.data || "[]");
+                setSnapshotList(data.list);
+              } else if (
+                msg.subcommand === "add" ||
+                msg.subcommand === "remove"
+              ) {
+                setSnapshotHistory((prev) => {
+                  const messageIndex = prev.findIndex(
+                    (item) => item.id === msg.id
+                  );
+
+                  if (messageIndex !== -1) {
+                    const updatedMessages = [...prev];
+                    updatedMessages[messageIndex] = msg;
+                    return updatedMessages;
+                  }
+
+                  return [msg, ...prev]; // aggiungi in cima se non esiste già
+                });
+              }
+              break;
+
+            case "flood":
+              if (msg.subcommand === "list") {
+                const data = JSON.parse(msg.data || '{"list":[]}');
+                setFloodList(data.list);
+              } else if (
+                msg.subcommand === "start" ||
+                msg.subcommand === "stop"
+              ) {
+                setFloodingHistory((prev) => {
+                  const messageIndex = prev.findIndex(
+                    (item) => item.id === msg.id
+                  );
+
+                  if (messageIndex !== -1) {
+                    const updatedMessages = [...prev];
+                    updatedMessages[messageIndex] = msg;
+                    return updatedMessages;
+                  }
+
+                  return [msg, ...prev]; // aggiungi in cima se non esiste già
+                });
+              }
+              break;
+
+            case "version":
+              if (msg.subcommand === "get") {
+                setDeamonVersion(msg.data || "");
+              }
+              break;
+            default:
+              break;
+          }
+        } catch (error) {
+          console.error(error);
+        }
+      });
+      webSocketContext.registerErrorHandler(handleNewError);
+
+      // evita che vengano inviati messaggi quando il socket si sta connettendo
+      webSocketContext.socket?.addEventListener("open", onOpenHandler);
+      if (webSocketContext.socket?.readyState === WebSocket.OPEN) {
+        onOpenHandler();
+      }
     }
-  }, [selectedHost, isPolling]);
+
+    return () => {
+      if (webSocketContext) {
+        webSocketContext.unregisterMessageHandler();
+        webSocketContext.unregisterErrorHandler();
+        webSocketContext.socket?.removeEventListener("open", onOpenHandler);
+      }
+    };
+  }, [webSocketContext]);
 
   return (
     <Box>
@@ -369,7 +325,7 @@ function Manage() {
               {selectedHost.label}
             </Typography>
             <Box sx={{ mb: "0.5rem", ml: "0.5rem" }}>
-              <IconButton aria-label="refresh" onClick={fetchData}>
+              <IconButton aria-label="refresh" onClick={handleRefreshList}>
                 <RefreshIcon
                   color="primary"
                   fontSize="large"
@@ -377,16 +333,6 @@ function Manage() {
                 />
               </IconButton>
             </Box>
-            <FormControlLabel
-              sx={{ mb: "0.5rem" }}
-              control={
-                <Switch
-                  checked={isPolling}
-                  onChange={() => setIsPolling(!isPolling)}
-                />
-              }
-              label={isPolling ? "Disattiva Polling" : "Attiva Polling"}
-            />
           </Box>
 
           <Box
@@ -403,19 +349,6 @@ function Manage() {
             <Typography variant="subtitle1" noWrap component="div">
               Deamon Version: {deamonVersion}
             </Typography>
-            <TextField
-              size="small"
-              label="Requests Timeout (seconds)"
-              variant="outlined"
-              value={reqTimeout}
-              onChange={(e) => handleSetTimeout(e.target.value)}
-              inputProps={{ min: 1 }}
-              type="number"
-              sx={{
-                m: "10px",
-                width: "12rem",
-              }}
-            />
           </Box>
 
           <Box sx={{ display: "flex", gap: 2 }}>
@@ -610,7 +543,7 @@ function Manage() {
                               >
                                 {item.status}
                               </Typography>
-                              {item.errorMsg && (
+                              {item.data && (
                                 <IconButton
                                   onClick={() =>
                                     handleToggle(index, setOpenItemsSnap)
@@ -626,13 +559,13 @@ function Manage() {
                               )}
                             </Box>
                           </Box>
-                          {openItemsSnap[index] && item.errorMsg && (
+                          {openItemsSnap[index] && item.data && (
                             <Typography
                               variant="body2"
                               color="red"
                               sx={{ marginTop: 1 }}
                             >
-                              {item.errorMsg}
+                              {item.data}
                             </Typography>
                           )}
                         </Box>
@@ -685,7 +618,7 @@ function Manage() {
                               >
                                 {item.status}
                               </Typography>
-                              {item.errorMsg && (
+                              {item.data && (
                                 <IconButton
                                   onClick={() =>
                                     handleToggle(index, setOpenItemsFlood)
@@ -701,13 +634,13 @@ function Manage() {
                               )}
                             </Box>
                           </Box>
-                          {openItemsFlood[index] && item.errorMsg && (
+                          {openItemsFlood[index] && item.data && (
                             <Typography
                               variant="body2"
                               color="red"
                               sx={{ marginTop: 1 }}
                             >
-                              {item.errorMsg}
+                              {item.data}
                             </Typography>
                           )}
                         </Box>

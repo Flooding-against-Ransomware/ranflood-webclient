@@ -9,6 +9,8 @@ import CssBaseline from "@mui/material/CssBaseline";
 import MuiAppBar, { AppBarProps as MuiAppBarProps } from "@mui/material/AppBar";
 import { Link, Outlet } from "react-router-dom";
 import { SelectedHostContext } from "./contexts/SelectedHostContext";
+import { Host } from "./models/GroupHost";
+import { WebSocketProvider } from "./contexts/WebSocketProvider";
 
 const drawerWidth = 300;
 
@@ -76,13 +78,7 @@ const StyledLink = styled(Link)(({ theme }) => ({
 
 function App() {
   const [open, setOpen] = useState(true);
-  const [selectedHost, setSelectedHost] = useState<
-    | {
-        label: string;
-        url: string;
-      }
-    | undefined
-  >(undefined);
+  const [selectedHost, setSelectedHost] = useState<Host | undefined>(undefined);
 
   const handleDrawerOpen = () => {
     setOpen(true);
@@ -94,45 +90,49 @@ function App() {
 
   return (
     <SelectedHostContext.Provider value={selectedHost}>
-      <Box sx={{ display: "flex" }}>
-        <CssBaseline />
-        <AppBar position="fixed" open={open}>
-          <Toolbar sx={{ display: "flex", justifyContent: "space-between" }}>
-            <Box sx={{ display: "flex", alignItems: "center" }}>
-              <IconButton
-                color="inherit"
-                aria-label="open drawer"
-                onClick={handleDrawerOpen}
-                edge="start"
-                sx={{ mr: 2, ...(open && { display: "none" }) }}
-              >
-                <MenuIcon />
-              </IconButton>
-              <Typography variant="h6" noWrap component="div">
-                Ranflood-Webclient
-              </Typography>
-            </Box>
-            <Box>
-              {pages.map((page) => (
-                <Button key={page}>
-                  <StyledLink to={`/${page.toLowerCase()}`}>{page}</StyledLink>
-                </Button>
-              ))}
-            </Box>
-          </Toolbar>
-        </AppBar>
-        <SideBar
-          open={open}
-          handleDrawerClose={handleDrawerClose}
-          setSelectedHost={setSelectedHost}
-        ></SideBar>
-        <Main open={open}>
-          <DrawerHeader />
-          <>
-            <Outlet />
-          </>
-        </Main>
-      </Box>
+      <WebSocketProvider>
+        <Box sx={{ display: "flex" }}>
+          <CssBaseline />
+          <AppBar position="fixed" open={open}>
+            <Toolbar sx={{ display: "flex", justifyContent: "space-between" }}>
+              <Box sx={{ display: "flex", alignItems: "center" }}>
+                <IconButton
+                  color="inherit"
+                  aria-label="open drawer"
+                  onClick={handleDrawerOpen}
+                  edge="start"
+                  sx={{ mr: 2, ...(open && { display: "none" }) }}
+                >
+                  <MenuIcon />
+                </IconButton>
+                <Typography variant="h6" noWrap component="div">
+                  Ranflood-Webclient
+                </Typography>
+              </Box>
+              <Box>
+                {pages.map((page) => (
+                  <Button key={page}>
+                    <StyledLink to={`/${page.toLowerCase()}`}>
+                      {page}
+                    </StyledLink>
+                  </Button>
+                ))}
+              </Box>
+            </Toolbar>
+          </AppBar>
+          <SideBar
+            open={open}
+            handleDrawerClose={handleDrawerClose}
+            setSelectedHost={setSelectedHost}
+          ></SideBar>
+          <Main open={open}>
+            <DrawerHeader />
+            <>
+              <Outlet />
+            </>
+          </Main>
+        </Box>
+      </WebSocketProvider>
     </SelectedHostContext.Provider>
   );
 }

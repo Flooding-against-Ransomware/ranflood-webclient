@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { styled, useTheme } from "@mui/material/styles";
 import Drawer from "@mui/material/Drawer";
 
@@ -21,6 +21,8 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+
+import { WebSocketContext } from "../contexts/WebSocketProvider";
 
 import { Group, Host } from "../models/GroupHost";
 
@@ -48,6 +50,8 @@ export default function SideBar({
 }: Props) {
   const theme = useTheme();
 
+  const webSocketContext = useContext(WebSocketContext);
+
   const [newGroupName, setNewGroupName] = useState<string>("");
   const [newHostLabel, setNewHostLabel] = useState<string>("");
   const [newHostInput, setNewHostInput] = useState<string>("");
@@ -56,7 +60,7 @@ export default function SideBar({
     const DEFAULTHOST = [
       {
         groupName: "Group1",
-        hosts: [{ label: "localhost", url: "http://localhost:8080/command" }],
+        hosts: [{ label: "localhost", url: "ws://localhost:8080/websocket" }],
       },
     ];
     // Recupera la lista dal local storage al caricamento iniziale dell'app
@@ -163,8 +167,8 @@ export default function SideBar({
                 />
               </ListItem>
               <List>
-                {group.hosts.map((host) => (
-                  <ListItem key={host.url} sx={{ pl: 5 }}>
+                {group.hosts.map((host, index) => (
+                  <ListItem key={index} sx={{ pl: 5 }}>
                     <IconButton
                       edge="start"
                       aria-label="delete"
@@ -172,7 +176,12 @@ export default function SideBar({
                     >
                       <DeleteIcon />
                     </IconButton>
-                    <ListItemButton onClick={() => setSelectedHost(host)}>
+                    <ListItemButton
+                      onClick={() => {
+                        setSelectedHost(host);
+                        webSocketContext?.setWebSocketUrl(host.url);
+                      }}
+                    >
                       <ListItemText
                         primary={host.label}
                         primaryTypographyProps={{
