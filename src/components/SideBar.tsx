@@ -14,6 +14,7 @@ import AddCircleIcon from "@mui/icons-material/AddCircle";
 import ListItemText from "@mui/material/ListItemText";
 import {
   Box,
+  Button,
   FormControl,
   InputLabel,
   MenuItem,
@@ -25,6 +26,8 @@ import {
 import { WebSocketContext } from "../contexts/WebSocketProvider";
 
 import { Group, Host } from "../models/GroupHost";
+import { CommandStatus } from "../models/CommandStatus";
+import { getMachinesFromLocalStorage } from "../services/localStorageService";
 
 const drawerWidth = 300;
 
@@ -78,12 +81,19 @@ export default function SideBar({
     }
   };
 
-  const handleNewMachine = () => {
+  const handleNewMachine = async () => {
+    const status = await checkHostConnection({
+      label: newHostLabel,
+      url: newHostInput,
+    });
     const updatedHostList = hostList.map((group) => {
       if (group.groupName === selectedGroup) {
         return {
           ...group,
-          hosts: [...group.hosts, { label: newHostLabel, url: newHostInput }],
+          hosts: [
+            ...group.hosts,
+            { label: newHostLabel, url: newHostInput, status },
+          ],
         };
       }
       return group;
@@ -116,9 +126,119 @@ export default function SideBar({
     setHostList(updatedHostList);
   };
 
-  // Aggiorna il local storage ogni volta che hostList cambia
+  const getStatusColor = (status?: string) => {
+    switch (status) {
+      case "online":
+        return "green";
+      case "offline":
+        return "red";
+      case "working":
+        return "orange";
+      default:
+        return "gray";
+    }
+  };
+
+  const checkHostConnection = async (
+    host: Host
+  ): Promise<"online" | "offline" | "working"> => {
+    return new Promise((resolve) => {
+      const ws = new WebSocket(host.url);
+
+      // nel caso l'url inserito non è valido la connessione rimarrebbe pending per un lungo periodo di tempo
+      // e così facendo gli status non verrebbe settati correttamente
+      const timeout = setTimeout(() => {
+        ws.close();
+        resolve("offline");
+      }, 5000);
+
+      ws.onopen = () => {
+        const commandBody = {
+          command: "flood",
+          subcommand: "list",
+        };
+        ws.send(JSON.stringify(commandBody));
+      };
+
+      ws.onmessage = (event) => {
+        clearTimeout(timeout);
+        ws.close();
+        const msg: CommandStatus = JSON.parse(event.data);
+
+        if (msg.subcommand === "list" && msg.command === "flood") {
+          const data = JSON.parse(msg.data || '{"list":[]}');
+
+          data.list.length === 0 ? resolve("online") : resolve("working");
+        } else {
+          resolve("online");
+        }
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        resolve("offline");
+      };
+    });
+  };
+
+  // Try to connect to every host
+  const checkAllHosts = async () => {
+    const updatedHostList = await Promise.all(
+      hostList.map(async (group) => ({
+        ...group,
+        hosts: await Promise.all(
+          group.hosts.map(async (host) => {
+            const status = await checkHostConnection(host);
+            return { ...host, status }; // Aggiorna lo stato del host
+          })
+        ),
+      }))
+    );
+
+    setHostList(updatedHostList);
+  };
+
+  const handleDownload = () => {
+    const machinesList = getMachinesFromLocalStorage();
+    const blob = new Blob([JSON.stringify(machinesList, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "machinesList.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleUploadHostList = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        if (e.target?.result) {
+          const newHostList = JSON.parse(e.target.result as string);
+          setHostList(newHostList);
+        }
+      };
+      reader.readAsText(file);
+    }
+  };
+
   useEffect(() => {
-    localStorage.setItem("hostList", JSON.stringify(hostList));
+    checkAllHosts();
+  }, []);
+
+  useEffect(() => {
+    // Serve per non salvare lo status nello storage, non avrebbe senso
+    const hostListWithoutStatus = hostList.map((group) => ({
+      ...group,
+      hosts: group.hosts.map(
+        ({ status, ...hostWithoutStatus }) => hostWithoutStatus
+      ),
+    }));
+
+    localStorage.setItem("hostList", JSON.stringify(hostListWithoutStatus));
   }, [hostList]);
 
   return (
@@ -144,11 +264,12 @@ export default function SideBar({
           )}
         </IconButton>
       </DrawerHeader>
-      <Divider />
+
       {hostList.length ? (
         <List>
           {hostList.map((group) => (
             <React.Fragment key={group.groupName}>
+              <Divider />
               <ListItem>
                 <IconButton
                   edge="start"
@@ -188,11 +309,19 @@ export default function SideBar({
                           color: "textSecondary", // Colore diverso per differenziarlo ulteriormente
                         }}
                       />
+                      <Box
+                        sx={{
+                          width: 12,
+                          height: 12,
+                          borderRadius: "50%",
+                          backgroundColor: getStatusColor(host.status),
+                          ml: 2,
+                        }}
+                      />
                     </ListItemButton>
                   </ListItem>
                 ))}
               </List>
-              <Divider />
             </React.Fragment>
           ))}
         </List>
@@ -203,14 +332,15 @@ export default function SideBar({
       )}
       <Box
         sx={{
-          bottom: 0,
-          m: "5px",
+          mb: "20px",
+          display: "flex",
+          flexDirection: "row",
+          justifyContent: "center",
         }}
       >
-        <Typography variant="h6">Create New Group</Typography>
         <TextField
           size="small"
-          label="Group Name"
+          label="New Group"
           variant="outlined"
           value={newGroupName}
           onChange={(e) => setNewGroupName(e.target.value)}
@@ -229,12 +359,14 @@ export default function SideBar({
       <Divider />
       <Box
         sx={{
-          bottom: 0,
-          m: "5px",
+          m: "10px",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
         }}
       >
         <Typography variant="h6">Add New Machine</Typography>
-        <FormControl sx={{ mx: 1, minWidth: 250 }} size="small">
+        <FormControl sx={{ mx: 1, minWidth: 250, mb: 0.5 }} size="small">
           <InputLabel>Group</InputLabel>
           <Select
             value={selectedGroup}
@@ -254,7 +386,7 @@ export default function SideBar({
           variant="outlined"
           value={newHostLabel}
           onChange={(e) => setNewHostLabel(e.target.value)}
-          sx={{ mx: 1, minWidth: 250 }}
+          sx={{ mx: 1, minWidth: 250, mb: 0.5 }}
         />
         <TextField
           size="small"
@@ -262,15 +394,59 @@ export default function SideBar({
           variant="outlined"
           value={newHostInput}
           onChange={(e) => setNewHostInput(e.target.value)}
-          sx={{ mx: 1, minWidth: 250 }}
+          sx={{ mx: 1, minWidth: 250, mb: 0.5 }}
         />
-        <IconButton
+        <Button
           aria-label="add"
           onClick={handleNewMachine}
-          disabled={!newHostLabel.trim() || !newHostInput.trim()}
+          disabled={
+            !newHostLabel.trim() || !newHostInput.trim() || !selectedGroup
+          }
+          variant="contained"
         >
-          <AddCircleIcon color="primary" />
-        </IconButton>
+          Add
+        </Button>
+      </Box>
+      <Box
+        sx={{
+          m: "10px",
+          display: "flex",
+          flexDirection: "row",
+          justifyContent: "center",
+          gap: "10px",
+        }}
+      >
+        <Button
+          variant="contained"
+          color="primary"
+          onClick={handleDownload}
+          sx={{
+            minWidth: "155px",
+            height: "40px",
+          }}
+        >
+          Download list
+        </Button>
+        <input
+          accept=".json"
+          style={{ display: "none" }}
+          id="upload-json"
+          type="file"
+          onChange={handleUploadHostList}
+        />
+        <label htmlFor="upload-json">
+          <Button
+            variant="contained"
+            color="primary"
+            component="span"
+            sx={{
+              minWidth: "130px",
+              height: "40px",
+            }}
+          >
+            Upload list
+          </Button>
+        </label>
       </Box>
     </Drawer>
   );

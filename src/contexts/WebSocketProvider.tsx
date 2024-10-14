@@ -49,7 +49,6 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
       };
 
       ws.onmessage = (event) => {
-        // console.log("Message from WebSocket:", event.data);
         if (messageHandlerRef.current) {
           messageHandlerRef.current(event.data);
         }

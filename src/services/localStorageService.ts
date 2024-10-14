@@ -1,9 +1,18 @@
+import { Group } from "../models/GroupHost";
 import { Strategy } from "../models/Strategy";
 
 export const getStrategiesFromLocalStorage = (): Strategy[] => {
   const data = localStorage.getItem("strategies");
   if (data) {
     return JSON.parse(data) as Strategy[];
+  }
+  return [];
+};
+
+export const getMachinesFromLocalStorage = (): Group[] => {
+  const data = localStorage.getItem("hostList");
+  if (data) {
+    return JSON.parse(data) as Group[];
   }
   return [];
 };

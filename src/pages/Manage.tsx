@@ -263,7 +263,6 @@ function Manage() {
       });
       webSocketContext.registerErrorHandler(handleNewError);
 
-      // evita che vengano inviati messaggi quando il socket si sta connettendo
       webSocketContext.socket?.addEventListener("open", onOpenHandler);
       if (webSocketContext.socket?.readyState === WebSocket.OPEN) {
         onOpenHandler();
@@ -278,6 +277,14 @@ function Manage() {
       }
     };
   }, [webSocketContext]);
+
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      handleRefreshList();
+    }, 30000);
+
+    return () => clearInterval(intervalId);
+  }, []);
 
   return (
     <Box>
@@ -355,11 +362,13 @@ function Manage() {
             <Box
               sx={{
                 flex: 1,
-                bgcolor: "grey.300",
+                bgcolor: "#eceff1",
                 p: 2,
                 display: "flex",
                 flexDirection: "column",
                 justifyContent: "space-between",
+                borderTopLeftRadius: "10px",
+                borderTopRightRadius: "10px",
               }}
             >
               <Box>
@@ -430,11 +439,13 @@ function Manage() {
             <Box
               sx={{
                 flex: 1,
-                bgcolor: "grey.300",
+                bgcolor: "#eceff1",
                 p: 2,
                 display: "flex",
                 flexDirection: "column",
                 justifyContent: "space-between",
+                borderTopLeftRadius: "10px",
+                borderTopRightRadius: "10px",
               }}
             >
               <Box>
@@ -509,11 +520,13 @@ function Manage() {
             <Box
               sx={{
                 flex: 1,
-                bgcolor: "grey.300",
+                bgcolor: "#eceff1",
                 p: 2,
                 display: "flex",
                 flexDirection: "column",
                 justifyContent: "space-between",
+                borderBottomLeftRadius: "10px",
+                borderBottomRightRadius: "10px",
               }}
             >
               {snapshotHistory?.length ? (
@@ -578,7 +591,7 @@ function Manage() {
             <Box
               sx={{
                 flex: 1,
-                bgcolor: "grey.300",
+                bgcolor: "#eceff1",
                 p: 2,
                 display: "flex",
                 flexDirection: "column",
