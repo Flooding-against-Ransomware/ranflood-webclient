@@ -3,12 +3,17 @@ import { CommandBody } from "../models/CommandBody";
 import { CommandStatus } from "../models/CommandStatus";
 import { v4 as uuidv4 } from "uuid";
 
+type ValidationResult = {
+  isValid: boolean;
+  message?: string;
+};
+
 export class StrategiesEngine {
   private strategy: Strategy | undefined;
   private commandStat: Map<string, string> = new Map();
   //mappa id settato dallo user a uuid usato nel server
   private uuidMap: Map<string, string> = new Map();
-  private sendMessage: (message: string) => void;
+  private sendMessage?: (message: string) => void;
   private updateCommandStatus: (key: string, value: string) => void;
   private isStopped: boolean = false;
   private dependencyGraph: Map<string, string[]> = new Map();
@@ -16,10 +21,10 @@ export class StrategiesEngine {
   private setIsRunning: (status: boolean) => void;
 
   constructor(
-    sendMessage: (message: string) => void,
     updateCommandStatus: (key: string, value: string) => void,
-    messageHandler: (handler: (message: string) => void) => void,
-    setIsRunning: (status: boolean) => void
+    setIsRunning: (status: boolean) => void,
+    sendMessage: ((message: string) => void) | undefined,
+    messageHandler: ((handler: (message: string) => void) => void) | undefined
   ) {
     this.sendMessage = sendMessage;
     this.updateCommandStatus = updateCommandStatus;
@@ -27,38 +32,98 @@ export class StrategiesEngine {
     this.setIsRunning = setIsRunning;
 
     //setto l'handler per il ws
-    messageHandler((message) => {
-      console.log("Strategies page received:", message);
+    if (messageHandler)
+      messageHandler((message) => {
+        console.log("Strategies page received:", message);
 
-      let msg: CommandStatus;
-      try {
-        msg = JSON.parse(message);
+        let msg: CommandStatus;
+        try {
+          msg = JSON.parse(message);
 
-        console.log(this.commandStat);
+          switch (msg.command) {
+            case "snapshot":
+              if (msg.subcommand === "add" || msg.subcommand === "remove") {
+                this.onCommandCompleted(this.getIdByUuid(msg.id), msg.status);
+              }
+              break;
 
-        switch (msg.command) {
-          case "snapshot":
-            if (msg.subcommand === "add" || msg.subcommand === "remove") {
-              this.onCommandCompleted(this.getIdByUuid(msg.id), msg.status);
-            }
-            break;
+            case "flood":
+              if (msg.subcommand === "start") {
+                this.onCommandCompleted(this.getIdByUuid(msg.id), msg.status);
+              }
+              break;
 
-          case "flood":
-            if (msg.subcommand === "start") {
-              this.onCommandCompleted(this.getIdByUuid(msg.id), msg.status);
-            }
-            break;
-
-          default:
-            break;
+            default:
+              break;
+          }
+        } catch (error) {
+          console.error(error);
         }
-      } catch (error) {
-        console.error(error);
+      });
+  }
+
+  public validateStrategy(strategy: Strategy): ValidationResult {
+    const idSet = new Set<string>();
+    const graph: Map<string, string[]> = new Map();
+
+    for (const cmd of strategy.commands) {
+      if (idSet.has(cmd.id)) {
+        return {
+          isValid: false,
+          message: `L'ID del comando ${cmd.id} non è unico nella strategia ${strategy.name}`,
+        };
       }
-    });
+      idSet.add(cmd.id);
+
+      graph.set(cmd.id, cmd.dependencies || []);
+    }
+
+    if (this.hasCycle(graph)) {
+      return {
+        isValid: false,
+        message: `La strategia ${strategy.name} contiene cicli nelle dipendenze (deadlock)`,
+      };
+    }
+
+    return { isValid: true };
+  }
+
+  private hasCycle(graph: Map<string, string[]>): boolean {
+    const visited = new Set<string>();
+    const inStack = new Set<string>();
+
+    const dfs = (node: string): boolean => {
+      if (inStack.has(node)) {
+        return true;
+      }
+      if (visited.has(node)) {
+        return false;
+      }
+
+      visited.add(node);
+      inStack.add(node);
+
+      for (const neighbor of graph.get(node) || []) {
+        if (dfs(neighbor)) {
+          return true;
+        }
+      }
+
+      inStack.delete(node);
+      return false;
+    };
+
+    for (const node of graph.keys()) {
+      if (dfs(node)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   public runStrategy(strategy: Strategy): void {
+    this.isStopped = false;
     this.setIsRunning(true);
     this.commandStat.clear();
     this.uuidMap.clear();
@@ -71,10 +136,8 @@ export class StrategiesEngine {
       this.uuidMap.set(command.id, uuid);
       this.commandStat.set(command.id, "pending");
 
-      // Popola il DAG
+      // Popola DAG e reverseDAG
       this.dependencyGraph.set(command.id, command.dependencies || []);
-
-      // Popola il reverse DAG per i comandi che dipendono da questo
       (command.dependencies || []).forEach((dep) => {
         if (!this.reverseDependencyGraph.has(dep)) {
           this.reverseDependencyGraph.set(dep, []);
@@ -104,7 +167,7 @@ export class StrategiesEngine {
         return key;
       }
     }
-    return ""; // Nessuna corrispondenza trovata
+    return "";
   }
 
   private runCommand(command: StratCommand): void {
@@ -126,10 +189,9 @@ export class StrategiesEngine {
         },
       };
 
-      console.log("Executing command", commandBody); // SOLO PER DEBUG
-      this.sendMessage(JSON.stringify(commandBody));
+      if (this.sendMessage) this.sendMessage(JSON.stringify(commandBody));
 
-      // nel caso di flood start dobbiamo pianificare anche flood stop
+      // nel caso di flood start pianifichiamo anche flood stop
       if (
         command.command === "flood" &&
         command.subcommand === "start" &&
@@ -138,8 +200,7 @@ export class StrategiesEngine {
         setTimeout(() => {
           commandBody.subcommand = "stop";
           commandBody.parameters.id = this.getUuidFromId(command.id);
-          console.log("sending flood stop");
-          this.sendMessage(JSON.stringify(commandBody));
+          if (this.sendMessage) this.sendMessage(JSON.stringify(commandBody));
         }, command.duration * 1000);
       }
     } catch (error) {
@@ -159,7 +220,7 @@ export class StrategiesEngine {
       this.canExecute(cmd)
     );
 
-    //manca solo la gestione dei deadlock e capire dove mettere il comando per bloccare l'esecuzione
+    //manca solo la gestione dei deadlock
 
     executableCommands.map((cmd) => this.runCommand(cmd));
   }

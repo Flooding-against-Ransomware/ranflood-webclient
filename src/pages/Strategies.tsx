@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useRef, useState } from "react";
 import {
   Accordion,
   AccordionDetails,
@@ -45,13 +45,39 @@ function Strategies() {
     null
   );
 
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onload = (e) => {
         if (e.target?.result) {
-          const strategies = JSON.parse(e.target.result as string);
+          const strategies: Strategy[] = JSON.parse(e.target.result as string);
+
+          const strategyEngine = new StrategiesEngine(
+            updateCommandStatus,
+            setIsStratRunning,
+            webSocketContext?.sendMessage,
+            webSocketContext?.registerMessageHandler
+          );
+
+          let positiveValutation = true;
+
+          strategies?.forEach((strategy: Strategy) => {
+            const validationResult = strategyEngine.validateStrategy(strategy);
+            if (!validationResult.isValid) {
+              alert(`Errore di validazione: ${validationResult.message}`); //va sostituito con gli alert di errore che usiamo anche in Manage
+              positiveValutation = false;
+              return;
+            }
+          });
+
+          if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+          }
+
+          if (!positiveValutation) return;
           setStrategiesToLocalStorage(strategies);
           setStrategies(getStrategiesFromLocalStorage());
           setFileName(file.name);
@@ -98,10 +124,10 @@ function Strategies() {
   useEffect(() => {
     if (webSocketContext) {
       const newstrategyEngine = new StrategiesEngine(
-        webSocketContext.sendMessage,
         updateCommandStatus,
-        webSocketContext.registerMessageHandler,
-        setIsStratRunning
+        setIsStratRunning,
+        webSocketContext.sendMessage,
+        webSocketContext.registerMessageHandler
       );
 
       setStrategyEngine(newstrategyEngine);
@@ -144,11 +170,12 @@ function Strategies() {
             <input
               accept=".json"
               style={{ display: "none" }}
-              id="upload-json"
+              id="upload-json-strat"
               type="file"
               onChange={handleFileChange}
+              ref={fileInputRef}
             />
-            <label htmlFor="upload-json">
+            <label htmlFor="upload-json-strat">
               <Button variant="contained" component="span">
                 Upload Strategies
               </Button>
@@ -226,7 +253,7 @@ function Strategies() {
                   {strategy.commands.map((cmd, cmdIndex) => (
                     <Paper key={cmdIndex} sx={{ mb: 2, p: 2 }}>
                       <Typography variant="h6" sx={{ mb: 1 }}>
-                        <strong>Action {cmdIndex + 1}</strong>
+                        <strong>Action {cmd.id}</strong>
                       </Typography>
                       <Grid container spacing={2}>
                         <Grid item xs={3}>
@@ -245,6 +272,15 @@ function Strategies() {
                             <strong>Path:</strong> {cmd.path}
                           </Typography>
                         </Grid>
+                        {cmd.dependencies && cmd.dependencies.length > 0 && (
+                          <Grid item xs={3}>
+                            <Typography variant="body1">
+                              <strong>Dependencies:</strong>{" "}
+                              {cmd.dependencies.join(", ")}
+                            </Typography>
+                          </Grid>
+                        )}
+
                         {strategy.name === activeStrategy ? (
                           <Grid item xs={3}>
                             <Typography variant="body1">
