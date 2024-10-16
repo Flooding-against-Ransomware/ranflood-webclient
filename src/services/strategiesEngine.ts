@@ -14,14 +14,20 @@ export class StrategiesEngine {
   //mappa id settato dallo user a uuid usato nel server
   private uuidMap: Map<string, string> = new Map();
   private sendMessage?: (message: string) => void;
-  private updateCommandStatus: (key: string, value: string) => void;
+  private updateCommandStatus: (
+    key: string,
+    value: { status: string; errorMsg?: string }
+  ) => void;
   private isStopped: boolean = false;
   private dependencyGraph: Map<string, string[]> = new Map();
   private reverseDependencyGraph: Map<string, string[]> = new Map(); // Per tenere traccia dei comandi bloccati da un comando
   private setIsRunning: (status: boolean) => void;
 
   constructor(
-    updateCommandStatus: (key: string, value: string) => void,
+    updateCommandStatus: (
+      key: string,
+      value: { status: string; errorMsg?: string }
+    ) => void,
     setIsRunning: (status: boolean) => void,
     sendMessage: ((message: string) => void) | undefined,
     messageHandler: ((handler: (message: string) => void) => void) | undefined
@@ -43,13 +49,21 @@ export class StrategiesEngine {
           switch (msg.command) {
             case "snapshot":
               if (msg.subcommand === "add" || msg.subcommand === "remove") {
-                this.onCommandCompleted(this.getIdByUuid(msg.id), msg.status);
+                this.onCommandCompleted(
+                  this.getIdByUuid(msg.id),
+                  msg.status,
+                  msg.data
+                );
               }
               break;
 
             case "flood":
               if (msg.subcommand === "start") {
-                this.onCommandCompleted(this.getIdByUuid(msg.id), msg.status);
+                this.onCommandCompleted(
+                  this.getIdByUuid(msg.id),
+                  msg.status,
+                  msg.data
+                );
               }
               break;
 
@@ -145,7 +159,7 @@ export class StrategiesEngine {
         this.reverseDependencyGraph.get(dep)?.push(command.id);
       });
 
-      this.updateCommandStatus(command.id, "pending");
+      this.updateCommandStatus(command.id, { status: "pending" });
     });
 
     this.executeCommands(strategy.commands);
@@ -177,7 +191,7 @@ export class StrategiesEngine {
       }
 
       this.commandStat.set(command.id, "in progress");
-      this.updateCommandStatus(command.id, "in progress");
+      this.updateCommandStatus(command.id, { status: "in progress" });
 
       const commandBody: CommandBody = {
         id: this.getUuidFromId(command.id),
@@ -204,7 +218,10 @@ export class StrategiesEngine {
         }, command.duration * 1000);
       }
     } catch (error) {
-      this.updateCommandStatus(command.id, "error");
+      this.updateCommandStatus(command.id, {
+        status: "error",
+        errorMsg: error as string,
+      });
       this.commandStat.set(command.id, "error");
       console.error(`Failed to execute command ${command.id}:`, error);
     }
@@ -225,9 +242,13 @@ export class StrategiesEngine {
     executableCommands.map((cmd) => this.runCommand(cmd));
   }
 
-  private onCommandCompleted(commandId: string, status: string): void {
+  private onCommandCompleted(
+    commandId: string,
+    status: string,
+    errorMsg?: string
+  ): void {
     this.commandStat.set(commandId, status);
-    this.updateCommandStatus(commandId, status);
+    this.updateCommandStatus(commandId, { status, errorMsg });
 
     const allCompleted = this.strategy?.commands.every(
       (depId) =>
@@ -262,7 +283,7 @@ export class StrategiesEngine {
 
   public editCmdStatus(id: string, cmd: string) {
     this.commandStat.set(id, cmd);
-    this.updateCommandStatus(id, cmd);
+    this.updateCommandStatus(id, { status: cmd });
   }
 
   public stopExecution() {

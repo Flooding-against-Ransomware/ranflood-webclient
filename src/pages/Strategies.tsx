@@ -31,7 +31,10 @@ function Strategies() {
 
   //gestisce lo stato della strategia attualmente attiva
   const [commandStatus, setCommandStatus] = useState(new Map());
-  const updateCommandStatus = (key: string, value: string) => {
+  const updateCommandStatus = (
+    key: string,
+    value: { status: string; errorMsg?: string }
+  ) => {
     setCommandStatus((map) => new Map(map.set(key, value)));
   };
 
@@ -256,37 +259,45 @@ function Strategies() {
                         <strong>Action {cmd.id}</strong>
                       </Typography>
                       <Grid container spacing={2}>
-                        <Grid item xs={3}>
+                        <Grid item xs={2}>
                           <Typography variant="body1">
                             <strong>Command:</strong>{" "}
                             {cmd.command + " " + cmd.subcommand}
                           </Typography>
                         </Grid>
-                        <Grid item xs={3}>
+                        <Grid item xs={2}>
                           <Typography variant="body1">
                             <strong>Method:</strong> {cmd.method}
                           </Typography>
                         </Grid>
-                        <Grid item xs={3}>
+                        <Grid item xs={2}>
                           <Typography variant="body1">
                             <strong>Path:</strong> {cmd.path}
                           </Typography>
                         </Grid>
-                        {cmd.dependencies && cmd.dependencies.length > 0 && (
-                          <Grid item xs={3}>
+                        {cmd.dependencies && cmd.dependencies.length > 0 ? (
+                          <Grid item xs={2}>
                             <Typography variant="body1">
                               <strong>Dependencies:</strong>{" "}
                               {cmd.dependencies.join(", ")}
                             </Typography>
                           </Grid>
+                        ) : (
+                          <Grid item xs={2}></Grid>
                         )}
 
                         {strategy.name === activeStrategy ? (
-                          <Grid item xs={3}>
+                          <Grid item xs={4}>
                             <Typography variant="body1">
                               <strong>Status:</strong>{" "}
-                              {commandStatus.get(cmd.id)}
+                              {commandStatus.get(cmd.id).status}
                             </Typography>
+                            {commandStatus.get(cmd.id)?.errorMsg && (
+                              <Typography variant="body2" color="error">
+                                <strong>Msg:</strong>{" "}
+                                {commandStatus.get(cmd.id)?.errorMsg}
+                              </Typography>
+                            )}
                           </Grid>
                         ) : null}
                       </Grid>
