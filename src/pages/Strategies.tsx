@@ -3,9 +3,12 @@ import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
+  Alert,
   Box,
   Button,
+  Collapse,
   Grid,
+  IconButton,
   Paper,
   Typography,
 } from "@mui/material";
@@ -13,6 +16,7 @@ import {
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import DeleteIcon from "@mui/icons-material/Delete";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import CloseIcon from "@mui/icons-material/Close";
 import StopIcon from "@mui/icons-material/Stop";
 import { useSelectedHostContext } from "../contexts/SelectedHostContext";
 import {
@@ -48,6 +52,8 @@ function Strategies() {
     null
   );
 
+  const [error, setError] = useState<string | undefined>(undefined);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -70,7 +76,8 @@ function Strategies() {
           strategies?.forEach((strategy: Strategy) => {
             const validationResult = strategyEngine.validateStrategy(strategy);
             if (!validationResult.isValid) {
-              alert(`Errore di validazione: ${validationResult.message}`); //va sostituito con gli alert di errore che usiamo anche in Manage
+              // alert(`Errore di validazione: ${validationResult.message}`); //va sostituito con gli alert di errore che usiamo anche in Manage
+              setError(validationResult.message);
               positiveValutation = false;
               return;
             }
@@ -139,6 +146,30 @@ function Strategies() {
 
   return (
     <Box>
+      {error ? (
+        <Box sx={{ width: "100%" }}>
+          <Collapse in={error !== undefined}>
+            <Alert
+              action={
+                <IconButton
+                  aria-label="close"
+                  color="inherit"
+                  size="small"
+                  onClick={() => {
+                    setError(undefined);
+                  }}
+                >
+                  <CloseIcon fontSize="inherit" />
+                </IconButton>
+              }
+              sx={{ mb: 2 }}
+              severity="error"
+            >
+              {error}
+            </Alert>
+          </Collapse>
+        </Box>
+      ) : null}
       {selectedHost ? (
         <Box
           component="main"
